@@ -1,0 +1,6 @@
+PyQt6>=6.6.0
+pyvista>=0.43.0
+pyvistaqt>=0.10.0
+httpx>=0.25.0
+numpy>=1.24.0
+
