@@ -22,7 +22,7 @@ class ThreeDViewer(QtInteractor):
         self.plotter = pv.Plotter() # sets up a variable to hold the 3D model plot
 
         # this calls the load_model function, with the file path as an input
-        self.load_model('C:\\Users\lizzy\OneDrive\Documents\GitHub\\3D-visual\\assets\models\cone.obj')
+        self.load_model('/Users/newt/Desktop/3D-visual/assets/models/cone.obj')
         # need the ABSOLUTE location for this to work ^^ (this would be mine)
 
         self.clear() # clears everything
@@ -49,8 +49,8 @@ class ThreeDViewer(QtInteractor):
 
     def clear(self):
         """clear all models"""
-        self.renderer.clear()
-        #self.plotter.clear()
+        # Clear all meshes from the plotter
+        self.plotter.clear()
 
 """
 # to test if it works -- remove quotations
