@@ -2,7 +2,8 @@
 main window for the app
 has gallery browsing and AI generation stuff
 """
-from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout
+import sys # to test the application at the bottom
+from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QApplication
 from PyQt6.QtCore import Qt
 from app.viewer import ThreeDViewer
 from app.data_manager import DataManager
@@ -32,6 +33,18 @@ class MainWindow(QMainWindow):
         left_panel.setMaximumWidth(300)
         left_layout = QVBoxLayout(left_panel)
         # TODO: gallery UI in week 3
+        """
+        # for the search bar: 
+        widget_search = QLineEdit()
+        widget_search.setMaxLength(10) # setting the size
+        widget_search.setPlaceholderText("Enter your text") # placeholder text that appears in the search bar
+        widget_search.setAlignment(Qt.AlignmentFlag.AlignLeft) # aligned left for now
+        
+        # this connects this widget to the below function
+        # so that when a user hits enter, we can then do something (hopefully save the data)
+        widget_search.returnPressed.connect(self.return_pressed) 
+        
+        """
         
         main_layout.addWidget(left_panel)
         
@@ -41,4 +54,19 @@ class MainWindow(QMainWindow):
         viewer_placeholder.setStyleSheet("background-color: #2b2b2b;")
         
         main_layout.addWidget(viewer_placeholder, stretch=1)
+
+    def return_pressed(self):
+        print("Return pressed")
+        pass # as it has no use right now
+
+
+"""
+# to test to see if it works
+app = QApplication(sys.argv) # main app setup
+
+window = MainWindow() # variable to hold main window
+window.show() # IMPORTANT -- so we can actually see it
+
+app.exec_() # executing the app
+"""
 
