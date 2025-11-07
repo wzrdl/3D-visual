@@ -49,11 +49,8 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(left_panel)
         
         # right panel - 3D viewer (week 4)
-        # TODO: integrate viewer in week 4
-        viewer_placeholder = QWidget()
-        viewer_placeholder.setStyleSheet("background-color: #2b2b2b;")
-        
-        main_layout.addWidget(viewer_placeholder, stretch=1)
+        self.viewer = ThreeDViewer()
+        main_layout.addWidget(self.viewer, stretch=1)
 
     def return_pressed(self):
         print("Return pressed")

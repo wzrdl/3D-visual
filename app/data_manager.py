@@ -1,18 +1,32 @@
 """
 DataManager - handles the local dataset stuff
-reads/writes metadata.json to keep track of all the 3D models
+Uses SQLite for persistent storage of 3D model metadata
 """
+
+# TODO: add a new function to delete a model from the database and the gallery
+# TODO: add a new function to update a model in the database and the gallery
+# TODO: add a new file with detailed instructions that we can add models to the database and the gallery
+
 import json
-import os
+import sqlite3
 from pathlib import Path
 from typing import List, Dict, Optional
+from datetime import datetime
+
+from numpy import add
+from app.schema import (
+    CREATE_TABLE_MODELS,
+    CREATE_INDEX_DISPLAY_NAME,
+    CREATE_INDEX_TAGS,
+    SCHEMA_VERSION
+)
 
 
 class DataManager:
-    """manages 3D models and their metadata"""
+    """manages 3D models and their metadata using SQLite"""
     
     def __init__(self, assets_dir: Optional[str] = None):
-        """setup paths and load metadata"""
+        """setup paths and initialize database, we already have a assets directory"""
         if assets_dir is None:
             project_root = Path(__file__).parent.parent
             self.assets_dir = project_root / "assets"
@@ -20,102 +34,209 @@ class DataManager:
             self.assets_dir = Path(assets_dir)
         
         self.models_dir = self.assets_dir / "models"
-        self.metadata_file = self.assets_dir / "metadata.json"
-        self.metadata: List[Dict] = []
+        self.db_path = self.assets_dir / "models.db"
+
+        # We migrate from metadata.json to SQLite database
+        self.metadata_file = self.assets_dir / "metadata.json" 
         
         self.models_dir.mkdir(parents=True, exist_ok=True)
-        self.load_metadata()
-    
-    def load_metadata(self) -> bool:
-        """load metadata from json file"""
-        if not self.metadata_file.exists():
-            self.metadata = []
-            self.save_metadata()
-            return True
         
+        # Initialize database connection, we only need the database file path
+        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        self.conn.row_factory = sqlite3.Row  # Enable column access by name
+        
+        # Run migrations
+        self._run_migrations()
+        self._migrate_from_json()
+    
+    def _run_migrations(self):
+        """create tables and indexes if they don't exist"""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute(CREATE_TABLE_MODELS)
+            cursor.execute(CREATE_INDEX_DISPLAY_NAME)
+            cursor.execute(CREATE_INDEX_TAGS)
+            self.conn.commit()
+        except sqlite3.Error as e:
+            print(f"Error running migrations: {e}")
+            self.conn.rollback()
+
+    # Since we are using SQLite, we need to migrate from metadata.json to SQLite database
+    # Once the migration is done, we can remove the metadata.json file
+    # Ignore this part in the future, we only need to run it once
+    def _migrate_from_json(self):
+        """migrate data from metadata.json if it exists and database is empty"""
+        if not self.metadata_file.exists():
+            return
+        
+        # Check if database already has data
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM models")
+        count = cursor.fetchone()[0]
+        
+        if count > 0:
+            # Database already has data, skip migration
+            # We don't want to overwrite the existing data
+            return
+        
+        # Migrate from JSON
         try:
             with open(self.metadata_file, 'r', encoding='utf-8') as f:
-                self.metadata = json.load(f)
+                metadata = json.load(f)
             
-            if not isinstance(self.metadata, list):
-                self.metadata = []
-                return False
+            if not isinstance(metadata, list):
+                return
             
-            return True
-        except (json.JSONDecodeError, IOError) as e:
-            print(f"Error loading metadata: {e}")
-            self.metadata = []
-            return False
-    
-    def save_metadata(self) -> bool:
-        """save metadata to json"""
-        try:
-            with open(self.metadata_file, 'w', encoding='utf-8') as f:
-                json.dump(self.metadata, f, indent=2, ensure_ascii=False)
-            return True
-        except IOError as e:
-            print(f"Error saving metadata: {e}")
-            return False
+            cursor = self.conn.cursor()
+            for entry in metadata:
+                model_id = entry.get('id')
+                filename = entry.get('filename')
+                display_name = entry.get('name', filename)  # Use 'name' from JSON as display_name
+                tags = entry.get('tags', [])
+                
+                # To prevent SQL injection, we use the question mark placeholder
+                # This is a safer way to insert values into the database
+                if model_id and filename:
+                    cursor.execute(
+                        "INSERT INTO models (id, filename, display_name, tags) VALUES (?, ?, ?, ?)",
+                        (model_id, filename, display_name, json.dumps(tags))
+                    )
+            
+            self.conn.commit()
+            print(f"Migrated {len(metadata)} models from metadata.json to SQLite")
+        except (json.JSONDecodeError, IOError, sqlite3.Error) as e:
+            print(f"Error migrating from JSON: {e}")
+            self.conn.rollback()
     
     def get_model_path(self, model_id: str) -> Optional[Path]:
         """get file path for a model by id"""
-        for entry in self.metadata:
-            if entry.get('id') == model_id:
-                filename = entry.get('filename')
-                if filename:
-                    return self.models_dir / filename
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT filename FROM models WHERE id = ?", (model_id,))
+        row = cursor.fetchone()
+        
+        if row:
+            return self.models_dir / row['filename']
         return None
     
     def get_all_models(self) -> List[Dict]:
-        """get all models"""
-        return self.metadata.copy()
+        """get all models, sorted by creation date.
+            However, we don't need to run this query often"""
+
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM models ORDER BY created_at DESC")
+        rows = cursor.fetchall()
+        
+        return [self._row_to_dict(row) for row in rows]
     
     def search_models(self, query: str) -> List[Dict]:
-        """search models by name or tags"""
-        query_lower = query.lower()
-        results = []
+        """search models by display_name or tags (type-ahead search)
+            This is a very common query, so we might use this frequently when we need to search for a model
+        """
+
+        #TODO: add a prompt instead of the name of the model
+
+        query_lower = f"%{query.lower()}%"
+        cursor = self.conn.cursor()
         
-        for entry in self.metadata:
-            name = entry.get('name', '').lower()
-            tags = [tag.lower() for tag in entry.get('tags', [])]
-            
-            if query_lower in name or any(query_lower in tag for tag in tags):
-                results.append(entry)
+        # Search in display_name and tags
+        cursor.execute(
+            """SELECT * FROM models 
+               WHERE LOWER(display_name) LIKE ? 
+               OR LOWER(tags) LIKE ?
+               ORDER BY display_name""",
+            (query_lower, query_lower)
+        )
+        rows = cursor.fetchall()
+        
+        results = []
+        for row in rows:
+            # Parse tags JSON and check if query matches any tag
+            tags = json.loads(row['tags'])
+            if (query.lower() in row['display_name'].lower() or
+                any(query.lower() in tag.lower() for tag in tags)):
+                results.append(self._row_to_dict(row))
         
         return results
     
     def add_model(self, model_id: str, filename: str, name: str, 
                   tags: List[str]) -> bool:
         """add a new model to metadata"""
-        # check if id already exists
-        if any(entry.get('id') == model_id for entry in self.metadata):
+        cursor = self.conn.cursor()
+        
+        # Check if id already exists
+        cursor.execute("SELECT id FROM models WHERE id = ?", (model_id,))
+        if cursor.fetchone():
             print(f"Model with ID '{model_id}' already exists")
             return False
         
-        new_entry = {
-            'id': model_id,
-            'filename': filename,
-            'name': name,
-            'tags': tags
-        }
+        try:
+            cursor.execute(
+                """INSERT INTO models (id, filename, display_name, tags, modified_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (model_id, filename, name, json.dumps(tags), datetime.now().isoformat())
+            )
+            self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Error adding model: {e}")
+            self.conn.rollback()
+            return False
+    
+    def save_model_to_gallery(self, model_id: str, filename: str, name: str,
+                             tags: List[str], model_data: bytes) -> bool:
+        """When the user adds a model, we need to save the model file to the gallery,
+           and also add the model into the database
+        """
+        cursor = self.conn.cursor()
         
-        self.metadata.append(new_entry)
-        return self.save_metadata()
+        try:
+            # Start transaction
+            cursor.execute("BEGIN TRANSACTION")
+            
+            # Write model file
+            model_path = self.models_dir / filename
+            with open(model_path, 'wb') as f:
+                f.write(model_data)
+            
+            # Insert metadata
+            # The metadata here is not the metadata.json file, it's the metadata of the model
+            # It includes the id, filename, display_name, tags, and modified_at
+            cursor.execute(
+                """INSERT INTO models (id, filename, display_name, tags, modified_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (model_id, filename, name, json.dumps(tags), datetime.now().isoformat())
+            )
+            
+            # Commit transaction
+            self.conn.commit()
+            return True
+        except (IOError, sqlite3.Error) as e:
+            print(f"Error saving model to gallery: {e}")
+            self.conn.rollback()
+            # Clean up file if it was created
+            model_path = self.models_dir / filename
+            if model_path.exists():
+                model_path.unlink()
+            return False
     
     def get_next_id(self) -> str:
-        """generate next available model id"""
-        if not self.metadata:
+        """generate next available model id, since we don't have a primary key, 
+            we need to generate a unique id for each model"""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id FROM models WHERE id LIKE 'model_%'")
+        rows = cursor.fetchall()
+        
+        if not rows:
             return "model_001"
         
         existing_ids = []
-        for entry in self.metadata:
-            id_str = entry.get('id', '')
-            if id_str.startswith('model_'):
-                try:
-                    num = int(id_str.replace('model_', ''))
-                    existing_ids.append(num)
-                except ValueError:
-                    pass
+        for row in rows:
+            id_str = row['id']
+            try:
+                num = int(id_str.replace('model_', ''))
+                existing_ids.append(num)
+            except ValueError:
+                pass
         
         if existing_ids:
             next_num = max(existing_ids) + 1
@@ -123,4 +244,24 @@ class DataManager:
             next_num = 1
         
         return f"model_{next_num:03d}"
-
+    
+    def _row_to_dict(self, row: sqlite3.Row) -> Dict:
+        """We want to convert database row to dictionary for easier access"""
+        return {
+            'id': row['id'],
+            'filename': row['filename'],
+            'name': row['display_name'],  # Keep 'name' key for compatibility
+            'display_name': row['display_name'],
+            'tags': json.loads(row['tags']),
+            'created_at': row['created_at'],
+            'modified_at': row['modified_at']
+        }
+    
+    def close(self):
+        """close database connection"""
+        if self.conn:
+            self.conn.close()
+    
+    def __del__(self):
+        """cleanup on deletion"""
+        self.close()
