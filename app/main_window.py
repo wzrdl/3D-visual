@@ -58,6 +58,11 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.plotter.interactor) # adds plot to main layout
         self.plotter.add_mesh(ThreeDViewer.load_model(self, 'C:\\Users\lizzy\OneDrive\Documents\GitHub\\3D-visual\\assets\models\cone.obj'))
         # the above line calls the function from viewer.py
+        
+        #file directories quick access
+        # 'C:\\Users\lizzy\OneDrive\Documents\GitHub\\3D-visual\\assets\models\cone.obj'
+        # '/Users/newt/Desktop/3D-visual/assets/models/cone.obj'
+        
         self.plotter.show_grid()
 
         viewer_placeholder = QWidget()
