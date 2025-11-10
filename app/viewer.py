@@ -15,14 +15,14 @@ class ThreeDViewer(QtInteractor):
     """3D model viewer widget"""
 
     def __init__(self, parent=None):
-        """init viewer"""
+
         super().__init__(parent)
         self.setup_renderer() # calls the function to set up renderer settings
 
         self.plotter = pv.Plotter() # sets up a variable to hold the 3D model plot
 
         # this calls the load_model function, with the file path as an input
-        self.load_model('C:\\Users\lizzy\OneDrive\Documents\GitHub\\3D-visual\\assets\models\cone.obj')
+        #self.load_model('C:\\Users\lizzy\OneDrive\Documents\GitHub\\3D-visual\\assets\models\cone.obj')
         # need the ABSOLUTE location for this to work ^^ (this would be mine)
 
         self.clear() # clears everything
@@ -42,10 +42,9 @@ class ThreeDViewer(QtInteractor):
 
         print("reading file path", file_path)
         mesh = pv.read(file_path)
-        self.plotter.add_mesh(mesh)
-        self.plotter.show()
-
-        return
+        #self.plotter.add_mesh(mesh)
+        #self.plotter.show()
+        return mesh
 
     def clear(self):
         """clear all models"""
