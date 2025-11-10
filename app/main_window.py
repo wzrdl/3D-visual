@@ -51,15 +51,13 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(left_panel)
         
-        # right panel - 3D viewer (week 4)
+        # 3D viewer (week 4)
         # TODO: integrate viewer in week 4
 
-        self.plotter = pvqt.QtInteractor(self)
-        #right_panel = ThreeDViewer()
-
-        main_layout.addWidget(self.plotter.interactor)
-        #mesh = pv.read('C:\\Users\lizzy\OneDrive\Documents\GitHub\\3D-visual\\assets\models\cone.obj')
+        self.plotter = pvqt.QtInteractor(self) # makes plot interactive
+        main_layout.addWidget(self.plotter.interactor) # adds plot to main layout
         self.plotter.add_mesh(ThreeDViewer.load_model(self, 'C:\\Users\lizzy\OneDrive\Documents\GitHub\\3D-visual\\assets\models\cone.obj'))
+        # the above line calls the function from viewer.py
         self.plotter.show_grid()
 
         viewer_placeholder = QWidget()
