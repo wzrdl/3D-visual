@@ -15,42 +15,36 @@ class ThreeDViewer(QtInteractor):
     """3D model viewer widget"""
 
     def __init__(self, parent=None):
-        """init viewer"""
         super().__init__(parent)
         self.setup_renderer() # calls the function to set up renderer settings
-
-        self.plotter = pv.Plotter() # sets up a variable to hold the 3D model plot
-
-        # this calls the load_model function, with the file path as an input
-        self.load_model('/Users/newt/Desktop/3D-visual/assets/models/cone.obj')
-        # need the ABSOLUTE location for this to work ^^ (this would be mine)
-
+        # QtInteractor IS a plotter, so we use self directly for plotter operations
         self.clear() # clears everything
 
     def setup_renderer(self):
         """setup renderer settings"""
-        self.background_color = '#2b2b2b'
+        self.background_color = '#ffffff'
         self.enable_trackball_style()
-        #self.add_axes_widget() # ERROR for some reason, this would not let it run
+        self.show_axes()
 
-    def load_model(self, file_path: str) -> bool:
-        """load and show a 3D model"""
+    @staticmethod
+    def load_model(file_path: str):
+        """load a 3D model from file path and return the mesh
+        
+        Args:
+            file_path: The absolute or relative path of the file that contains the 3D model
+            
+        Returns:
+            pyvista mesh object
         """
-        This function takes in a file path, reads it with Pyvista, and them displays it in a new window
-        param: file_path -- the absolute path of the file that contains the 3D model
-        """
-
         print("reading file path", file_path)
         mesh = pv.read(file_path)
-        self.plotter.add_mesh(mesh)
-        self.plotter.show()
-
-        return
+        return mesh
 
     def clear(self):
-        """clear all models"""
+        """clear all models from the viewer"""
         # Clear all meshes from the plotter
-        self.plotter.clear()
+        # Since QtInteractor IS a plotter, we use self directly
+        super().clear()
 
 """
 # to test if it works -- remove quotations

@@ -1,19 +1,25 @@
 """
 main window for the app
-has gallery browsing and AI generation stuff
+manages the tabbed interface and coordinates between pages
 """
-import sys # to test the application at the bottom
-from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QApplication
+import sys
+import os
+from pathlib import Path
+from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QTabWidget
 from PyQt6.QtCore import Qt
-from app.viewer import ThreeDViewer
+from PyQt6.QtGui import QCloseEvent
 from app.data_manager import DataManager
+from app.pages import GalleryPage, AIGenerationPage, ViewerPage
+
+# Suppress VTK warnings during cleanup
+# os.environ['VTK_LOGGING_LEVEL'] = 'ERROR'
 
 
 class MainWindow(QMainWindow):
-    """main window"""
+    """The main window that holds all the tabs"""
     
     def __init__(self):
-        """init main window"""
+        """Create the main window"""
         super().__init__()
         self.setWindowTitle("3D Model Generator & Library")
         self.setGeometry(100, 100, 1200, 800)
@@ -22,48 +28,51 @@ class MainWindow(QMainWindow):
         self.setup_ui()
     
     def setup_ui(self):
-        """setup UI layout"""
+        """Create the tabs and add all the pages"""
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         
-        main_layout = QHBoxLayout(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
         
-        # left panel - gallery/search (week 3)
-        left_panel = QWidget()
-        left_panel.setMaximumWidth(300)
-        left_layout = QVBoxLayout(left_panel)
-        # TODO: gallery UI in week 3
-        """
-        # for the search bar: 
-        widget_search = QLineEdit()
-        widget_search.setMaxLength(10) # setting the size
-        widget_search.setPlaceholderText("Enter your text") # placeholder text that appears in the search bar
-        widget_search.setAlignment(Qt.AlignmentFlag.AlignLeft) # aligned left for now
+        # Create tab widget for multiple pages
+        self.tabs = QTabWidget()
+        self.tabs.setTabPosition(QTabWidget.TabPosition.North)
         
-        # this connects this widget to the below function
-        # so that when a user hits enter, we can then do something (hopefully save the data)
-        widget_search.returnPressed.connect(self.return_pressed) 
+        # Page 1: Gallery (with callback to viewer page)
+        self.gallery_page = GalleryPage(
+            data_manager=self.data_manager,
+            viewer_page_callback=self.on_model_selected_callback
+        )
+        self.tabs.addTab(self.gallery_page, "Gallery")
         
-        """
+        # Page 2: AI Generation
+        self.ai_generation_page = AIGenerationPage()
+        self.tabs.addTab(self.ai_generation_page, "AI Generation")
         
-        main_layout.addWidget(left_panel)
+        # Page 3: 3D Viewer
+        self.viewer_page = ViewerPage()
+        self.tabs.addTab(self.viewer_page, "3D Viewer")
         
-        # right panel - 3D viewer (week 4)
-        self.viewer = ThreeDViewer()
-        main_layout.addWidget(self.viewer, stretch=1)
-
-    def return_pressed(self):
-        print("Return pressed")
-        pass # as it has no use right now
-
-
-"""
-# to test to see if it works
-app = QApplication(sys.argv) # main app setup
-
-window = MainWindow() # variable to hold main window
-window.show() # IMPORTANT -- so we can actually see it
-
-app.exec_() # executing the app
-"""
-
+        main_layout.addWidget(self.tabs)
+        central_widget.setLayout(main_layout)
+    
+    def on_model_selected_callback(self, model_path: Path, model_name: str):
+        """Called when someone picks a model from the gallery - switch to viewer and load it"""
+        # Switch to viewer tab (index 2 - third tab)
+        self.tabs.setCurrentIndex(2)
+        # Load model in viewer
+        self.viewer_page.load_model(str(model_path))
+        print(f"Loaded model: {model_name}")
+    
+    def closeEvent(self, event: QCloseEvent):
+        """Clean up everything when the window closes"""
+        # Clean up viewer page
+        if hasattr(self, 'viewer_page') and self.viewer_page:
+            self.viewer_page.cleanup()
+        
+        # Close database connection
+        if hasattr(self, 'data_manager') and self.data_manager:
+            self.data_manager.close()
+        
+        event.accept()
