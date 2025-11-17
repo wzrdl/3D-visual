@@ -3,8 +3,8 @@ Page classes for the application
 Each page is a separate class with its own functionality
 """
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QLineEdit, QListWidget, 
-    QListWidgetItem, QPushButton, QTextEdit, QLabel
+    QWidget, QVBoxLayout, QLineEdit, QListWidget,
+    QListWidgetItem, QPushButton, QTextEdit, QLabel, QHBoxLayout
 )
 from PyQt6.QtCore import Qt
 from app.viewer import ThreeDViewer
@@ -173,6 +173,54 @@ class ViewerPage(BasePage):
         super().__init__(parent)
     
     def setup_ui(self):
+        """Set up buttons in the viewer tab"""
+        button_layout = QHBoxLayout(self)
+        button_layout.setContentsMargins(0, 0, 0, 0)
+        button_layout.setSpacing(0)
+
+        # button_style_template copied from generate_button to be consistent
+        button_style_template = """
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+        """
+        # Download button -- copied from generate_button
+        self.download_button = QPushButton("Download")
+        self.download_button.setMinimumHeight(40)
+        self.download_button.setStyleSheet(button_style_template)
+
+        # Toggle Light button
+        self.light_button = QPushButton("Light")
+        self.light_button.setMinimumHeight(40)
+        self.light_button.setStyleSheet(button_style_template)
+
+        #self.toggle_light = True # setup for initial -- light is on
+
+        # Toggle Grid button
+        self.grid_button = QPushButton("Grid")
+        self.grid_button.setMinimumHeight(40)
+        self.grid_button.setStyleSheet(button_style_template)
+
+        # combining the buttons in a layout
+        button_layout.addWidget(self.download_button)
+        button_layout.addWidget(self.light_button)
+        button_layout.addWidget(self.grid_button)
+
+        # making a widget hold the layout so we can nest layouts
+        button_layout_widget = QWidget(self)
+        button_layout_widget.setLayout(button_layout)
+
         """Set up the 3D viewer widget"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -183,8 +231,9 @@ class ViewerPage(BasePage):
         # Set minimum size to ensure viewer is visible
         self.viewer.setMinimumSize(400, 400)
         self.viewer.show_grid()
-        
+
         # Add viewer directly to layout (QtInteractor is already a widget)
+        layout.addWidget(button_layout_widget) # adding the top row of buttons
         layout.addWidget(self.viewer, stretch=1)
     
     def load_model(self, model_path: str):
@@ -198,11 +247,31 @@ class ViewerPage(BasePage):
             # Load new model
             mesh = ThreeDViewer.load_model(str(model_path))
             self.viewer.add_mesh(mesh)
+            light = ThreeDViewer.setup_light(self) # lighting
+            self.viewer.add_light(light)
             self.viewer.reset_camera()
             print(f"Loaded model: {model_path}")
         except Exception as e:
             print(f"Error loading model: {e}")
-    
+
+    """when any of the buttons are clicked"""
+
+    """NOT WORKING RIGHT NOW !!!"""
+    def onClick(self):
+        """Called when the user clicks on the 3D viewer page"""
+        sender = self.sender()
+        #icon = sender.icon() # in case we want to change the text on the button
+
+        if sender is self.download_button:
+            """download file locally"""
+            print("download click")
+        elif sender is self.light_button:
+            """toggle a light source on the 3D viewer"""
+            print("light click")
+        elif sender is self.grid_button:
+            """toggle a grid on the 3D viewer"""
+            print("grid click")
+
     def clear(self):
         """Remove everything from the viewer"""
         if self.viewer:

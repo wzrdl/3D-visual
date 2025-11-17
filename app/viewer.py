@@ -40,6 +40,16 @@ class ThreeDViewer(QtInteractor):
         mesh = pv.read(file_path)
         return mesh
 
+    def setup_light(self):
+        self.light = pv.Light(
+            position=(3, 3, 3),
+            show_actor=True,
+            positional=True,
+            cone_angle=45,
+            exponent=5,
+        )
+        return self.light
+
     def clear(self):
         """clear all models from the viewer"""
         # Clear all meshes from the plotter
