@@ -13,6 +13,9 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
 
+# for thumbnails
+import pyvista as pv
+
 from numpy import add
 from app.schema import (
     CREATE_TABLE_MODELS,
@@ -158,7 +161,7 @@ class DataManager:
         
         return results
     
-    def add_model(self, model_id: str, filename: str, name: str, 
+    def add_model(self, model_id: str, filename: str, name: str,
                   tags: List[str]) -> bool:
         """add a new model to metadata"""
         cursor = self.conn.cursor()
@@ -254,9 +257,9 @@ class DataManager:
             'display_name': row['display_name'],
             'tags': json.loads(row['tags']),
             'created_at': row['created_at'],
-            'modified_at': row['modified_at']
+            'modified_at': row['modified_at'],
         }
-    
+
     def close(self):
         """close database connection"""
         if self.conn:

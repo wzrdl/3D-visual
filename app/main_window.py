@@ -53,7 +53,14 @@ class MainWindow(QMainWindow):
         # Page 3: 3D Viewer
         self.viewer_page = ViewerPage()
         self.tabs.addTab(self.viewer_page, "3D Viewer")
-        
+
+        """
+        # link buttons to this
+        self.viewer_page.download_button.clicked.connect(self.clicked_download_button)
+        self.viewer_page.light_button.clicked.connect(self.toggle_light_button)
+        self.viewer_page.gallery_button.clicked.connect(self.clicked_gallery_button)
+        """
+
         main_layout.addWidget(self.tabs)
         central_widget.setLayout(main_layout)
     
@@ -64,7 +71,7 @@ class MainWindow(QMainWindow):
         # Load model in viewer
         self.viewer_page.load_model(str(model_path))
         print(f"Loaded model: {model_name}")
-    
+
     def closeEvent(self, event: QCloseEvent):
         """Clean up everything when the window closes"""
         # Clean up viewer page
