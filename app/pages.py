@@ -10,6 +10,10 @@ from PyQt6.QtCore import Qt
 from app.viewer import ThreeDViewer
 from app.data_manager import DataManager
 
+# to download files
+import shutil
+import pathlib
+
 
 class BasePage(QWidget):
     """Base class that all pages inherit from"""
@@ -176,9 +180,6 @@ class ViewerPage(BasePage):
         """Create the viewer page"""
         self.viewer = None
         super().__init__(parent)
-
-        self.model_name = None
-        self.model_path = None
     
     def setup_ui(self):
         """Set up buttons in the viewer tab"""
@@ -209,7 +210,7 @@ class ViewerPage(BasePage):
         self.download_button.setStyleSheet(button_style_template)
 
         # Toggle Light button
-        self.light_button = QPushButton("Light")
+        self.light_button = QPushButton("Light: On")
         self.light_button.setMinimumHeight(40)
         self.light_button.setStyleSheet(button_style_template)
 
@@ -256,7 +257,8 @@ class ViewerPage(BasePage):
             # Clear previous model
             self.viewer.clear()
             # Load new model
-            mesh = ThreeDViewer.load_model(str(model_path))
+            self.model_path = str(model_path) # so that download function can access it
+            mesh = ThreeDViewer.load_model(model_path)
             self.viewer.add_mesh(mesh)
             self.light = ThreeDViewer.setup_light(self) # lighting
             self.viewer.add_light(self.light)
@@ -265,29 +267,67 @@ class ViewerPage(BasePage):
         except Exception as e:
             print(f"Error loading model: {e}")
 
-        # reset download button text upon new model loading
+        # resetting button text upon new model loading
         self.download_button.setText("Download")
+        self.gallery_button.setText("Add to Gallery")
+        self.light_button.setText("Light: On")
 
         # for buttons
     def clicked_download_button(self):
         """When the download button is pressed"""
         print("download clicked")
         self.download_button.setText("File Downloaded")
+        new_file_name = "destination.obj"
+
+        download_path = pathlib.Path.home() / 'Downloads' # works for windows computer
+
+        shutil.copyfile(self.model_path, new_file_name)
+        shutil.move(new_file_name, download_path)
 
         return
 
     def toggle_light_button(self):
         """Toggles the light on or off"""
-        print("toggling light button")
+
         if self.light.on:
             self.light.switch_off()
+            self.light_button.setText("Light: Off")
         else:
             self.light.switch_on()
+            self.light_button.setText("Light: On")
         return
 
     def clicked_gallery_button(self):
         """When the gallery button is pressed"""
         print("gallery clicked")
+        # the following two lines tests the thumbnail generation
+        #threeD = ThreeDViewer()
+        #threeD.generate_thumbnail(self.model_path)
+
+        gallery = DataManager()
+
+        """
+        Example
+        {
+            "id": "model_002",
+            "filename": "sphere.obj",
+            "name": "Sphere",
+            "tags": [
+              "geometric",
+              "primitive",
+              "round",
+              "ball"
+            ]
+          },
+        """
+        #model_id = gallery.get_next_id() # gets the next id to add it to the new object
+
+        # model_id: str, filename: str, name: str, tags: List[str]
+        #gallery.add_model(model_id,)
+        # (model_id: str, filename: str, name: str, tags: List[str], model_data: bytes)
+        #gallery.save_model_to_gallery(model_id,)
+
+        self.gallery_button.setText("Added to Gallery") # giving user feedback
 
         return
 

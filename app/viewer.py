@@ -50,6 +50,26 @@ class ThreeDViewer(QtInteractor):
         )
         return self.light
 
+    def generate_thumbnail(self, file_path: str):
+        """generate a screenshot/2D thumbnail from a 3D model"""
+
+        # off_screen means that the user will not see this happening
+        # window_size is pixel x pixel
+        thumbnail = pv.Plotter(off_screen=True, window_size=[600,600])
+        mesh = pv.read(file_path)
+        thumbnail.add_mesh(mesh)
+        thumbnail.set_background("white")
+
+        # works for windows -- idk about mac
+        file_name = file_path.split('\\')[-1].replace('.obj', '.png')
+        print(file_name)
+        # positioning the camera
+        thumbnail.view_isometric()
+        # optional zoom
+        thumbnail.camera.zoom(1)
+        thumbnail.screenshot(f"assets\\thumbnails\\{file_name}")
+        thumbnail.close() # IMPORTANT
+
     def clear(self):
         """clear all models from the viewer"""
         # Clear all meshes from the plotter
