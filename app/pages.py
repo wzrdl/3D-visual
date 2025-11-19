@@ -149,7 +149,7 @@ class AIGenerationPage(BasePage):
             }
         """)
         # TODO: Connect to API client in Week 5
-        # self.generate_button.clicked.connect(self.on_generate_clicked)
+        self.generate_button.clicked.connect(self.on_generate_clicked)
         layout.addWidget(self.generate_button)
 
         # Add stretch to push content to top
@@ -158,7 +158,12 @@ class AIGenerationPage(BasePage):
     def get_prompt(self) -> str:
         """Returns whatever text the user typed in"""
         return self.prompt_input.toPlainText().strip()
-    
+
+    def on_generate_clicked(self):
+        """When the generate button is pressed"""
+        print("generate clicked")
+        return
+
     def clear_prompt(self):
         """Wipe out the text in the input box"""
         self.prompt_input.clear()
@@ -171,6 +176,9 @@ class ViewerPage(BasePage):
         """Create the viewer page"""
         self.viewer = None
         super().__init__(parent)
+
+        self.model_name = None
+        self.model_path = None
     
     def setup_ui(self):
         """Set up buttons in the viewer tab"""
@@ -205,17 +213,15 @@ class ViewerPage(BasePage):
         self.light_button.setMinimumHeight(40)
         self.light_button.setStyleSheet(button_style_template)
 
-        #self.toggle_light = True # setup for initial -- light is on
-
-        # Toggle Grid button
-        self.grid_button = QPushButton("Grid")
-        self.grid_button.setMinimumHeight(40)
-        self.grid_button.setStyleSheet(button_style_template)
+        # Toggle Gallery button
+        self.gallery_button = QPushButton("Add to Gallery")
+        self.gallery_button.setMinimumHeight(40)
+        self.gallery_button.setStyleSheet(button_style_template)
 
         # combining the buttons in a layout
         button_layout.addWidget(self.download_button)
         button_layout.addWidget(self.light_button)
-        button_layout.addWidget(self.grid_button)
+        button_layout.addWidget(self.gallery_button)
 
         # making a widget hold the layout so we can nest layouts
         button_layout_widget = QWidget(self)
@@ -235,9 +241,14 @@ class ViewerPage(BasePage):
         # Add viewer directly to layout (QtInteractor is already a widget)
         layout.addWidget(button_layout_widget) # adding the top row of buttons
         layout.addWidget(self.viewer, stretch=1)
+
+        self.download_button.clicked.connect(self.clicked_download_button)
+        self.light_button.clicked.connect(self.toggle_light_button)
+        self.gallery_button.clicked.connect(self.clicked_gallery_button)
     
     def load_model(self, model_path: str):
         """Load a model file and show it in the viewer"""
+        """ takes in the path to load and the name to set for a file download name"""
         if not self.viewer:
             return
         
@@ -247,30 +258,38 @@ class ViewerPage(BasePage):
             # Load new model
             mesh = ThreeDViewer.load_model(str(model_path))
             self.viewer.add_mesh(mesh)
-            light = ThreeDViewer.setup_light(self) # lighting
-            self.viewer.add_light(light)
+            self.light = ThreeDViewer.setup_light(self) # lighting
+            self.viewer.add_light(self.light)
             self.viewer.reset_camera()
             print(f"Loaded model: {model_path}")
         except Exception as e:
             print(f"Error loading model: {e}")
 
-    """when any of the buttons are clicked"""
+        # reset download button text upon new model loading
+        self.download_button.setText("Download")
 
-    """NOT WORKING RIGHT NOW !!!"""
-    def onClick(self):
-        """Called when the user clicks on the 3D viewer page"""
-        sender = self.sender()
-        #icon = sender.icon() # in case we want to change the text on the button
+        # for buttons
+    def clicked_download_button(self):
+        """When the download button is pressed"""
+        print("download clicked")
+        self.download_button.setText("File Downloaded")
 
-        if sender is self.download_button:
-            """download file locally"""
-            print("download click")
-        elif sender is self.light_button:
-            """toggle a light source on the 3D viewer"""
-            print("light click")
-        elif sender is self.grid_button:
-            """toggle a grid on the 3D viewer"""
-            print("grid click")
+        return
+
+    def toggle_light_button(self):
+        """Toggles the light on or off"""
+        print("toggling light button")
+        if self.light.on:
+            self.light.switch_off()
+        else:
+            self.light.switch_on()
+        return
+
+    def clicked_gallery_button(self):
+        """When the gallery button is pressed"""
+        print("gallery clicked")
+
+        return
 
     def clear(self):
         """Remove everything from the viewer"""
