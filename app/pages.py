@@ -2,13 +2,19 @@
 Page classes for the application
 Each page is a separate class with its own functionality
 """
+import os
+
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QLineEdit, QListWidget, 
-    QListWidgetItem, QPushButton, QTextEdit, QLabel
+    QWidget, QVBoxLayout, QLineEdit, QListWidget,
+    QListWidgetItem, QPushButton, QTextEdit, QLabel, QHBoxLayout
 )
 from PyQt6.QtCore import Qt
 from app.viewer import ThreeDViewer
 from app.data_manager import DataManager
+
+# to download files
+import shutil
+import pathlib
 
 
 class BasePage(QWidget):
@@ -149,7 +155,7 @@ class AIGenerationPage(BasePage):
             }
         """)
         # TODO: Connect to API client in Week 5
-        # self.generate_button.clicked.connect(self.on_generate_clicked)
+        self.generate_button.clicked.connect(self.on_generate_clicked)
         layout.addWidget(self.generate_button)
 
         # Add stretch to push content to top
@@ -158,7 +164,12 @@ class AIGenerationPage(BasePage):
     def get_prompt(self) -> str:
         """Returns whatever text the user typed in"""
         return self.prompt_input.toPlainText().strip()
-    
+
+    def on_generate_clicked(self):
+        """When the generate button is pressed"""
+        print("generate clicked")
+        return
+
     def clear_prompt(self):
         """Wipe out the text in the input box"""
         self.prompt_input.clear()
@@ -173,6 +184,52 @@ class ViewerPage(BasePage):
         super().__init__(parent)
     
     def setup_ui(self):
+        """Set up buttons in the viewer tab"""
+        button_layout = QHBoxLayout(self)
+        button_layout.setContentsMargins(0, 0, 0, 0)
+        button_layout.setSpacing(0)
+
+        # button_style_template copied from generate_button to be consistent
+        button_style_template = """
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+        """
+        # Download button -- copied from generate_button
+        self.download_button = QPushButton("Download")
+        self.download_button.setMinimumHeight(40)
+        self.download_button.setStyleSheet(button_style_template)
+
+        # Toggle Light button
+        self.light_button = QPushButton("Light: On")
+        self.light_button.setMinimumHeight(40)
+        self.light_button.setStyleSheet(button_style_template)
+
+        # Toggle Gallery button
+        self.gallery_button = QPushButton("Add to Gallery")
+        self.gallery_button.setMinimumHeight(40)
+        self.gallery_button.setStyleSheet(button_style_template)
+
+        # combining the buttons in a layout
+        button_layout.addWidget(self.download_button)
+        button_layout.addWidget(self.light_button)
+        button_layout.addWidget(self.gallery_button)
+
+        # making a widget hold the layout so we can nest layouts
+        button_layout_widget = QWidget(self)
+        button_layout_widget.setLayout(button_layout)
+
         """Set up the 3D viewer widget"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -183,12 +240,18 @@ class ViewerPage(BasePage):
         # Set minimum size to ensure viewer is visible
         self.viewer.setMinimumSize(400, 400)
         self.viewer.show_grid()
-        
+
         # Add viewer directly to layout (QtInteractor is already a widget)
+        layout.addWidget(button_layout_widget) # adding the top row of buttons
         layout.addWidget(self.viewer, stretch=1)
+
+        self.download_button.clicked.connect(self.clicked_download_button)
+        self.light_button.clicked.connect(self.toggle_light_button)
+        self.gallery_button.clicked.connect(self.clicked_gallery_button)
     
     def load_model(self, model_path: str):
         """Load a model file and show it in the viewer"""
+        """ takes in the path to load and the name to set for a file download name"""
         if not self.viewer:
             return
         
@@ -196,13 +259,113 @@ class ViewerPage(BasePage):
             # Clear previous model
             self.viewer.clear()
             # Load new model
-            mesh = ThreeDViewer.load_model(str(model_path))
+            self.model_path = str(model_path) # so that download function can access it
+            mesh = ThreeDViewer.load_model(model_path)
             self.viewer.add_mesh(mesh)
+            self.light = ThreeDViewer.setup_light(self) # lighting
+            self.viewer.add_light(self.light)
             self.viewer.reset_camera()
             print(f"Loaded model: {model_path}")
         except Exception as e:
             print(f"Error loading model: {e}")
-    
+
+        # resetting button text upon new model loading
+        self.download_button.setText("Download")
+        self.gallery_button.setText("Add to Gallery")
+        self.light_button.setText("Light: On")
+
+    # makes the file and display name from the model path
+    def file_name_from_model_path(self):
+        """ takes the model path and gets the [name].obj from it """
+
+        if self.model_path != None:
+            file_name = self.model_path.split('\\')[-1]
+            return file_name
+        else:
+            return None
+
+    # function for the next button click
+    def file_name_exists(self, file_name):
+        """ changes the filename so that it does not produce errors
+            It does so by checking the last value for if it is a number or not """
+
+        if file_name[-5].isdigit() == True:
+            number = int(file_name[-5]) + 1
+            string_number = str(number)
+            file_name = file_name[:-5] + string_number + file_name[-4:]
+        else:
+            file_name = file_name[:-4] + "1" + file_name[-4:]
+
+        return file_name
+
+        # for buttons
+    def clicked_download_button(self):
+        """When the download button is pressed"""
+        print("download clicked")
+        self.download_button.setText("File Downloaded")
+        file_name = self.file_name_from_model_path()
+
+        download_path = pathlib.Path.home() / 'Downloads' # works for windows computer
+
+        if os.path.exists(str(download_path / file_name)):
+            file_name = self.file_name_exists(file_name)
+
+        shutil.copyfile(self.model_path, file_name)
+        shutil.move(file_name, download_path)
+
+        return
+
+    def toggle_light_button(self):
+        """Toggles the light on or off"""
+
+        if self.light.on:
+            self.light.switch_off()
+            self.light_button.setText("Light: Off")
+        else:
+            self.light.switch_on()
+            self.light_button.setText("Light: On")
+        return
+
+    def clicked_gallery_button(self):
+        """When the gallery button is pressed"""
+        print("gallery clicked")
+
+        # the following two lines tests the thumbnail generation
+        #threeD = ThreeDViewer()
+        #threeD.generate_thumbnail(self.model_path)
+
+        gallery = DataManager()
+
+        # need the following values to add to gallery
+
+        #model id
+        model_id = gallery.get_next_id()
+
+        # filename
+        filename = self.file_name_from_model_path()
+        # display name
+        display_name = filename.upper()[0] + filename[1:]
+
+        """
+        TO do
+        Add tags and model data after AI implementation
+        """
+        # tags
+        tags = [] # IMPORTANT ADD THIS --------------------------------
+
+        #model data
+        model_data = None # ADD THIS AFTER AI -------------------------
+
+        """
+        # gallery.add_model(model_id, filename, display_name, tags)
+        added = gallery.save_model_to_gallery(model_id, filename, display_name, tags, model_data)
+        if added == True:
+            self.gallery_button.setText("Added to Gallery") # giving user feedback
+        else:
+            self.gallery_button.setText("Failed to add to Gallery")
+        """
+        return
+
     def clear(self):
         """Remove everything from the viewer"""
         if self.viewer:
