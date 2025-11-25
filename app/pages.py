@@ -2,6 +2,8 @@
 Page classes for the application
 Each page is a separate class with its own functionality
 """
+import os
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLineEdit, QListWidget,
     QListWidgetItem, QPushButton, QTextEdit, QLabel, QHBoxLayout
@@ -272,17 +274,44 @@ class ViewerPage(BasePage):
         self.gallery_button.setText("Add to Gallery")
         self.light_button.setText("Light: On")
 
+    # makes the file and display name from the model path
+    def file_name_from_model_path(self):
+        """ takes the model path and gets the [name].obj from it """
+
+        if self.model_path != None:
+            file_name = self.model_path.split('\\')[-1]
+            return file_name
+        else:
+            return None
+
+    # function for the next button click
+    def file_name_exists(self, file_name):
+        """ changes the filename so that it does not produce errors
+            It does so by checking the last value for if it is a number or not """
+
+        if file_name[-5].isdigit() == True:
+            number = int(file_name[-5]) + 1
+            string_number = str(number)
+            file_name = file_name[:-5] + string_number + file_name[-4:]
+        else:
+            file_name = file_name[:-4] + "1" + file_name[-4:]
+
+        return file_name
+
         # for buttons
     def clicked_download_button(self):
         """When the download button is pressed"""
         print("download clicked")
         self.download_button.setText("File Downloaded")
-        new_file_name = "destination.obj"
+        file_name = self.file_name_from_model_path()
 
         download_path = pathlib.Path.home() / 'Downloads' # works for windows computer
 
-        shutil.copyfile(self.model_path, new_file_name)
-        shutil.move(new_file_name, download_path)
+        if os.path.exists(str(download_path / file_name)):
+            file_name = self.file_name_exists(file_name)
+
+        shutil.copyfile(self.model_path, file_name)
+        shutil.move(file_name, download_path)
 
         return
 
@@ -300,35 +329,41 @@ class ViewerPage(BasePage):
     def clicked_gallery_button(self):
         """When the gallery button is pressed"""
         print("gallery clicked")
+
         # the following two lines tests the thumbnail generation
         #threeD = ThreeDViewer()
         #threeD.generate_thumbnail(self.model_path)
 
         gallery = DataManager()
 
+        # need the following values to add to gallery
+
+        #model id
+        model_id = gallery.get_next_id()
+
+        # filename
+        filename = self.file_name_from_model_path()
+        # display name
+        display_name = filename.upper()[0] + filename[1:]
+
         """
-        Example
-        {
-            "id": "model_002",
-            "filename": "sphere.obj",
-            "name": "Sphere",
-            "tags": [
-              "geometric",
-              "primitive",
-              "round",
-              "ball"
-            ]
-          },
+        TO do
+        Add tags and model data after AI implementation
         """
-        #model_id = gallery.get_next_id() # gets the next id to add it to the new object
+        # tags
+        tags = [] # IMPORTANT ADD THIS --------------------------------
 
-        # model_id: str, filename: str, name: str, tags: List[str]
-        #gallery.add_model(model_id,)
-        # (model_id: str, filename: str, name: str, tags: List[str], model_data: bytes)
-        #gallery.save_model_to_gallery(model_id,)
+        #model data
+        model_data = None # ADD THIS AFTER AI -------------------------
 
-        self.gallery_button.setText("Added to Gallery") # giving user feedback
-
+        """
+        # gallery.add_model(model_id, filename, display_name, tags)
+        added = gallery.save_model_to_gallery(model_id, filename, display_name, tags, model_data)
+        if added == True:
+            self.gallery_button.setText("Added to Gallery") # giving user feedback
+        else:
+            self.gallery_button.setText("Failed to add to Gallery")
+        """
         return
 
     def clear(self):
