@@ -4,6 +4,7 @@ Each page is a separate class with its own functionality
 """
 import os
 
+from PyQt6.QtGui import QImage, QIcon
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLineEdit, QListWidget,
     QListWidgetItem, QPushButton, QTextEdit, QLabel, QHBoxLayout
@@ -73,8 +74,20 @@ class GalleryPage(BasePage):
         """Fill the list with model names"""
         self.model_list.clear()
         for model in models:
+            # model name
             item = QListWidgetItem(model['display_name'])
             item.setData(Qt.ItemDataRole.UserRole, model)
+
+            # model thumbnail
+            model_name = model['filename']
+            thumbnail_path = ".\\assets\\thumbnails\\" + model_name[:-4] + ".png"
+            if os.path.exists(thumbnail_path) == False:
+                thumbnail_object = ThreeDViewer()
+                model_path = ".\\assets\\models\\" + model_name
+                thumbnail_object.generate_thumbnail(model_path)
+            thumbnail = QIcon(thumbnail_path)
+            item.setIcon(thumbnail)
+
             self.model_list.addItem(item)
     
     def filter_models(self, query: str):
