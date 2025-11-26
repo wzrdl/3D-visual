@@ -13,7 +13,7 @@ from PyQt6.QtCore import Qt
 from app.viewer import ThreeDViewer
 from app.data_manager import DataManager
 
-# to download files
+
 import shutil
 import pathlib
 
@@ -272,12 +272,22 @@ class ViewerPage(BasePage):
             # Clear previous model
             self.viewer.clear()
             # Load new model
-            self.model_path = str(model_path) # so that download function can access it
+            self.model_path = str(model_path)  # so that download function can access it
             mesh = ThreeDViewer.load_model(model_path)
             self.viewer.add_mesh(mesh)
-            self.light = ThreeDViewer.setup_light(self) # lighting
+
+            # Top-down light from above (positive Z direction)
+            self.light = ThreeDViewer.setup_light()
             self.viewer.add_light(self.light)
-            self.viewer.reset_camera()
+
+            # Default to viewing the model from the "front"
+            # Assume the model's forward direction is the Z axis (+Z forward) and Y is the vertical up axis
+            cx, cy, cz = mesh.center
+            distance = max(getattr(mesh, "length", 1.0), 1.0)
+            camera_pos = (cx, cy, cz + 1.5 * distance)  # In +Z direction, looking straight at the model
+            # Use +Y as the up direction to keep the model upright in the view
+            self.viewer.camera_position = [camera_pos, (cx, cy, cz), (0, 1, 0)]
+
             print(f"Loaded model: {model_path}")
         except Exception as e:
             print(f"Error loading model: {e}")

@@ -40,15 +40,18 @@ class ThreeDViewer(QtInteractor):
         mesh = pv.read(file_path)
         return mesh
 
-    def setup_light(self):
-        self.light = pv.Light(
-            position=(3, 3, 3),
+    @staticmethod
+    def setup_light():
+        """Create a light that shines straight down from above the model."""
+        light = pv.Light(
+            position=(0, 0, 10),   # directly above in +Z
+            focal_point=(0, 0, 0), # pointing to scene center
             show_actor=True,
             positional=True,
             cone_angle=45,
-            exponent=5,
+            exponent=10,
         )
-        return self.light
+        return light
 
     def generate_thumbnail(self, file_path: str):
         """generate a screenshot/2D thumbnail from a 3D model"""
