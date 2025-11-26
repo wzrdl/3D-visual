@@ -247,6 +247,50 @@ class DataManager:
             next_num = 1
         
         return f"model_{next_num:03d}"
+
+    def import_new_models_from_folder(self, default_tags: Optional[List[str]] = None) -> int:
+        
+        default_tags = default_tags or []
+
+        # Collect existing filenames from the database to avoid duplicates
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT filename FROM models")
+        existing_filenames = {row["filename"] for row in cursor.fetchall()}
+
+        # Find all .obj files in the models directory
+        obj_files = [p for p in self.models_dir.glob("*.obj") if p.is_file()]
+
+        imported_count = 0
+        for obj_path in obj_files:
+            filename = obj_path.name
+            if filename in existing_filenames:
+                # Already in database, skip
+                continue
+
+            model_id = self.get_next_id()
+            display_name = obj_path.stem  # filename without extension
+            tags = list(default_tags)
+
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO models (id, filename, display_name, tags, modified_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (model_id, filename, display_name, json.dumps(tags), datetime.now().isoformat()),
+                )
+                imported_count += 1
+                print(f"Imported model: id={model_id}, file={filename}")
+            except sqlite3.Error as e:
+                print(f"Error importing model from file '{filename}': {e}")
+                self.conn.rollback()
+                # continue with the next file
+
+        if imported_count > 0:
+            self.conn.commit()
+
+        print(f"Total new models imported: {imported_count}")
+        return imported_count
     
     def _row_to_dict(self, row: sqlite3.Row) -> Dict:
         """We want to convert database row to dictionary for easier access"""
@@ -268,3 +312,17 @@ class DataManager:
     def __del__(self):
         """cleanup on deletion"""
         self.close()
+
+
+def _cli_import_new_models():
+    
+    dm = DataManager()
+    try:
+        imported = dm.import_new_models_from_folder()
+        print(f"Finished importing. New models added: {imported}")
+    finally:
+        dm.close()
+
+
+if __name__ == "__main__":
+    _cli_import_new_models()
