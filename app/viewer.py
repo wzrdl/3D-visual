@@ -65,8 +65,10 @@ class ThreeDViewer(QtInteractor):
         print(file_name)
         # positioning the camera
         thumbnail.view_isometric()
+        # to include the full model
+        thumbnail.reset_camera()
         # optional zoom
-        thumbnail.camera.zoom(1)
+        thumbnail.camera.zoom(0.9)
         thumbnail.screenshot(f"assets\\thumbnails\\{file_name}")
         thumbnail.close() # IMPORTANT
 

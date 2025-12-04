@@ -51,6 +51,9 @@ class DataManager:
         # Run migrations
         self._run_migrations()
         self._migrate_from_json()
+
+        #cleanup
+        self.remove_nonexistent_models()
     
     def _run_migrations(self):
         """create tables and indexes if they don't exist"""
@@ -110,7 +113,7 @@ class DataManager:
         except (json.JSONDecodeError, IOError, sqlite3.Error) as e:
             print(f"Error migrating from JSON: {e}")
             self.conn.rollback()
-    
+
     def get_model_path(self, model_id: str) -> Optional[Path]:
         """get file path for a model by id"""
         cursor = self.conn.cursor()
@@ -120,7 +123,26 @@ class DataManager:
         if row:
             return self.models_dir / row['filename']
         return None
-    
+
+    def remove_nonexistent_models(self):
+        """remove all models from models.db that don't exist in the assets folder        """
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id, filename FROM models")
+        all_models = cursor.fetchall()
+
+        deleted_number = 0
+
+        for row in all_models:
+            model_id = row['id']
+            file_path = self.get_model_path(model_id)
+
+            if file_path.exists() == False:
+                cursor.execute("DELETE FROM models WHERE id = ?", (model_id,))
+                deleted_number += 1
+
+        self.conn.commit()
+        print(f"Removed {deleted_number} models from models.db")
+
     def get_all_models(self) -> List[Dict]:
         """get all models, sorted by creation date.
             However, we don't need to run this query often"""
