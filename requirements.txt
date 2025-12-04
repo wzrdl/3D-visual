@@ -20,3 +20,6 @@ huggingface_hub>=0.24.0
 # tqdm>=4.65.0            
 # pydantic>=2.0           
 # rich>=13.0              
+
+# ---- Cloud storage (for hosting model files on GCP) ----
+google-cloud-storage>=2.18.0,<3.0

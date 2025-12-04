@@ -8,7 +8,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QTabWidget
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QCloseEvent
-from app.data_manager import DataManager
+from app.client_data_manager import ClientDataManager
 from app.pages import GalleryPage, AIGenerationPage, ViewerPage
 
 # Suppress VTK warnings during cleanup
@@ -24,7 +24,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("3D Model Generator & Library")
         self.setGeometry(100, 100, 1200, 800)
         
-        self.data_manager = DataManager()
+        # Use the FastAPI-based client DataManager (local cache only)
+        self.data_manager = ClientDataManager()
         self.setup_ui()
     
     def setup_ui(self):
@@ -77,9 +78,15 @@ class MainWindow(QMainWindow):
         # Clean up viewer page
         if hasattr(self, 'viewer_page') and self.viewer_page:
             self.viewer_page.cleanup()
-        
-        # Close database connection
+
+        # Clear local cache and close the client
         if hasattr(self, 'data_manager') and self.data_manager:
+            try:
+                # Delete cached model files
+                if hasattr(self.data_manager, "clear_cache"):
+                    self.data_manager.clear_cache()
+            except Exception:
+                pass
             self.data_manager.close()
         
         event.accept()
