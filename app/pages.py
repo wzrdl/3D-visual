@@ -7,9 +7,9 @@ import os
 from PyQt6.QtGui import QImage, QIcon
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLineEdit, QListWidget,
-    QListWidgetItem, QPushButton, QTextEdit, QLabel, QHBoxLayout
+    QListWidgetItem, QPushButton, QTextEdit, QLabel, QHBoxLayout, QGridLayout, QListView
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSize
 from app.viewer import ThreeDViewer
 
 
@@ -43,7 +43,7 @@ class GalleryPage(BasePage):
     
     def setup_ui(self):
         """Put together the search bar and model list"""
-        layout = QVBoxLayout(self)
+        layout = QGridLayout(self) # was QVBox Layout
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
 
@@ -59,6 +59,10 @@ class GalleryPage(BasePage):
         self.model_list = QListWidget()
         self.model_list.setAlternatingRowColors(True)
         self.model_list.itemClicked.connect(self.on_model_selected)
+        self.model_list.setFlow(QListView.Flow.LeftToRight)
+        self.model_list.setWrapping(True)
+        self.model_list.setResizeMode(QListWidget.ResizeMode.Adjust)
+
         layout.addWidget(self.model_list)
     
     def load_models(self):
@@ -72,9 +76,17 @@ class GalleryPage(BasePage):
     def populate_model_list(self, models):
         """Fill the list with model names"""
         self.model_list.clear()
+
+        # setup for the gallery view
+        self.model_list.setWordWrap(True)
+        self.model_list.setIconSize(QSize(150, 150))
+        self.model_list.setGridSize(QSize(175, 175))
+        self.model_list.setViewMode(QListWidget.ViewMode.IconMode)
+
         for model in models:
             # model name
-            item = QListWidgetItem(model['display_name'])
+            item = QListWidgetItem()
+            item.setText(model['display_name'])
             item.setData(Qt.ItemDataRole.UserRole, model)
 
             # model thumbnail
@@ -88,6 +100,7 @@ class GalleryPage(BasePage):
             item.setIcon(thumbnail)
 
             self.model_list.addItem(item)
+
     
     def filter_models(self, query: str):
         """Update the list as the user types in the search box"""
