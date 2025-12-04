@@ -11,9 +11,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QSize
 from app.viewer import ThreeDViewer
-from app.data_manager import DataManager
 
-# to download files
+
 import shutil
 import pathlib
 
@@ -34,7 +33,7 @@ class BasePage(QWidget):
 class GalleryPage(BasePage):
     """The gallery page where you can browse and search through your 3D models"""
     
-    def __init__(self, data_manager: DataManager, viewer_page_callback=None, parent=None):
+    def __init__(self, data_manager, viewer_page_callback=None, parent=None):
         """Create the gallery page. Needs a data manager to load models and a callback to open them in the viewer"""
         self.data_manager = data_manager
         self.viewer_page_callback = viewer_page_callback
@@ -285,12 +284,22 @@ class ViewerPage(BasePage):
             # Clear previous model
             self.viewer.clear()
             # Load new model
-            self.model_path = str(model_path) # so that download function can access it
+            self.model_path = str(model_path)  # so that download function can access it
             mesh = ThreeDViewer.load_model(model_path)
             self.viewer.add_mesh(mesh)
-            self.light = ThreeDViewer.setup_light(self) # lighting
+
+            # Top-down light from above (positive Z direction)
+            self.light = ThreeDViewer.setup_light()
             self.viewer.add_light(self.light)
-            self.viewer.reset_camera()
+
+            # Default to viewing the model from the "front"
+            # Assume the model's forward direction is the Z axis (+Z forward) and Y is the vertical up axis
+            cx, cy, cz = mesh.center
+            distance = max(getattr(mesh, "length", 1.0), 1.0)
+            camera_pos = (cx, cy, cz + 1.5 * distance)  # In +Z direction, looking straight at the model
+            # Use +Y as the up direction to keep the model upright in the view
+            self.viewer.camera_position = [camera_pos, (cx, cy, cz), (0, 1, 0)]
+
             print(f"Loaded model: {model_path}")
         except Exception as e:
             print(f"Error loading model: {e}")
@@ -354,33 +363,33 @@ class ViewerPage(BasePage):
 
     def clicked_gallery_button(self):
         """When the gallery button is pressed"""
-        print("gallery clicked")
+        # print("gallery clicked")
 
         # the following two lines tests the thumbnail generation
         #threeD = ThreeDViewer()
         #threeD.generate_thumbnail(self.model_path)
 
-        gallery = DataManager()
+        # gallery = DataManager()
 
         # need the following values to add to gallery
 
         #model id
-        model_id = gallery.get_next_id()
+        #model_id = gallery.get_next_id()
 
         # filename
-        filename = self.file_name_from_model_path()
+        #filename = self.file_name_from_model_path()
         # display name
-        display_name = filename.upper()[0] + filename[1:]
+        #display_name = filename.upper()[0] + filename[1:]
 
         """
         TO do
         Add tags and model data after AI implementation
         """
         # tags
-        tags = [] # IMPORTANT ADD THIS --------------------------------
+        # tags = [] # IMPORTANT ADD THIS --------------------------------
 
         #model data
-        model_data = None # ADD THIS AFTER AI -------------------------
+        # model_data = None # ADD THIS AFTER AI -------------------------
 
         """
         # gallery.add_model(model_id, filename, display_name, tags)

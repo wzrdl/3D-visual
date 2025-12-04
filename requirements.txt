@@ -1,19 +1,25 @@
 # ---- Core scientific stack ----
-numpy>=1.24,<2.2          # 稳定版本，兼容多数科学库
+numpy>=1.24,<2.2          #
 
 # ---- Qt & 3D visualization stack ----
-PyQt6>=6.6.0,<6.10        # 使用 Qt6，避免过新版本的潜在不兼容
+PyQt6>=6.6.0,<6.10        
 PyQt6-Qt6>=6.6.0,<6.10
 PyQt6-sip>=13.6.0
 
-pyvista>=0.43.0,<1.0      # 3D/VTK 可视化
-pyvistaqt>=0.11.3,<0.12   # 与 PyQt6 + QtPy 协同工作
-QtPy>=2.4.0,<3.0          # 统一 Qt 抽象层，供 pyvistaqt 使用
+pyvista>=0.43.0,<1.0      
+pyvistaqt>=0.11.3,<0.12   
+QtPy>=2.4.0,<3.0          
 
 # ---- Networking / async HTTP ----
 httpx>=0.25.0,<0.28
 
-# ---- 可选：常用工具（如不需要可删除）----
-# tqdm>=4.65.0            # 进度条
-# pydantic>=2.0           # 配置/数据模型
-# rich>=13.0              # 终端彩色输出
+# ---- Datasets / Hugging Face ----
+huggingface_hub>=0.24.0
+
+# ---- Optional: (if needed)----
+# tqdm>=4.65.0            
+# pydantic>=2.0           
+# rich>=13.0              
+
+# ---- Cloud storage (for hosting model files on GCP) ----
+google-cloud-storage>=2.18.0,<3.0
