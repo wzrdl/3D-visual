@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from app.viewer import ThreeDViewer
-from app.data_manager import DataManager
 
 
 import shutil
@@ -34,7 +33,7 @@ class BasePage(QWidget):
 class GalleryPage(BasePage):
     """The gallery page where you can browse and search through your 3D models"""
     
-    def __init__(self, data_manager: DataManager, viewer_page_callback=None, parent=None):
+    def __init__(self, data_manager, viewer_page_callback=None, parent=None):
         """Create the gallery page. Needs a data manager to load models and a callback to open them in the viewer"""
         self.data_manager = data_manager
         self.viewer_page_callback = viewer_page_callback
@@ -351,33 +350,33 @@ class ViewerPage(BasePage):
 
     def clicked_gallery_button(self):
         """When the gallery button is pressed"""
-        print("gallery clicked")
+        # print("gallery clicked")
 
         # the following two lines tests the thumbnail generation
         #threeD = ThreeDViewer()
         #threeD.generate_thumbnail(self.model_path)
 
-        gallery = DataManager()
+        # gallery = DataManager()
 
         # need the following values to add to gallery
 
         #model id
-        model_id = gallery.get_next_id()
+        #model_id = gallery.get_next_id()
 
         # filename
-        filename = self.file_name_from_model_path()
+        #filename = self.file_name_from_model_path()
         # display name
-        display_name = filename.upper()[0] + filename[1:]
+        #display_name = filename.upper()[0] + filename[1:]
 
         """
         TO do
         Add tags and model data after AI implementation
         """
         # tags
-        tags = [] # IMPORTANT ADD THIS --------------------------------
+        # tags = [] # IMPORTANT ADD THIS --------------------------------
 
         #model data
-        model_data = None # ADD THIS AFTER AI -------------------------
+        # model_data = None # ADD THIS AFTER AI -------------------------
 
         """
         # gallery.add_model(model_id, filename, display_name, tags)
