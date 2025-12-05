@@ -1,9 +1,6 @@
 """
-FastAPI backend for managing 3D model metadata and files.
-
-This service:
-- Uses the existing `DataManager` + `GCSModelStorage` to read/write models.
-- Exposes simple HTTP endpoints so that clients do NOT need direct GCS credentials.
+FastAPI backend for managing 3D model metadata and files. 
+I have already created the endpoint for the backend in GCP Cloud Run
 """
 
 from __future__ import annotations
@@ -44,7 +41,7 @@ def health() -> Dict[str, str]:
 @app.get("/models", response_model=List[Dict])
 def list_models() -> List[Dict]:
     """
-    Return all models metadata from SQLite.
+    Return all models metadata from SQLite database.
     (Currently still uses SQLite inside the container; can be migrated to Cloud SQL later.)
     """
     dm = _get_dm()
@@ -92,7 +89,7 @@ def download_model_content(model_id: str):
 async def upload_model(
     model_id: str = Form(...),
     name: str = Form(...),
-    tags: str = Form("[]"),  # JSON string
+    tags: str = Form("[]"),
     file: UploadFile = File(...),
 ):
     """

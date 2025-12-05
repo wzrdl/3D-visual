@@ -1,10 +1,6 @@
 """
 Synchronous HTTP client for talking to the FastAPI backend.
-
-Used for:
-- Fetching model lists / single model metadata
-- Downloading model file content
-- Uploading new models
+We use this client to talk to the FastAPI backend
 """
 
 from __future__ import annotations

@@ -1,6 +1,8 @@
 """
 API client for AI 3D model generation
 sends requests to generate models from text
+
+Now we don't use this client, we use the MeshyClient instead
 """
 import httpx
 from typing import Optional, Dict, Any
