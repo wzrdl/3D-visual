@@ -1,8 +1,20 @@
 """
 Page classes for the application
 Each page is a separate class with its own functionality
+We have three pages:
+
+Gallery Page : view the models we saved in the database
+
+AI Generation Page : prompt the AI to generate a model
+
+Viewer Page : view the model in the 3D viewer
 """
+from __future__ import annotations
+
 import os
+import asyncio
+import re
+from pathlib import Path
 
 from PyQt6.QtGui import QImage, QIcon
 from PyQt6.QtWidgets import (
@@ -11,6 +23,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QSize
 from app.viewer import ThreeDViewer
+from app.meshy_client import MeshyClient
+from app.client_data_manager import ClientDataManager
 
 
 import shutil
@@ -67,10 +81,16 @@ class GalleryPage(BasePage):
     
     def load_models(self):
         """Grab all models from the database and show them in the list"""
+        try:
+            # Fetch all models via the data manager (ClientDataManager / DataManager)
+            if hasattr(self.data_manager, "get_all_models"):
+                self.all_models = self.data_manager.get_all_models()
+            else:
+                self.all_models = []
+        except Exception as e:
+            print(f"Error loading models for gallery: {e}")
+            self.all_models = []
 
-        # Currently we just get all models from the database and show them in the list
-        # TODO: We may find a better way to load models in the future
-        self.all_models = self.data_manager.get_all_models()
         self.populate_model_list(self.all_models)
     
     def populate_model_list(self, models):
@@ -91,13 +111,38 @@ class GalleryPage(BasePage):
 
             # model thumbnail
             model_name = model['filename']
-            thumbnail_path = ".\\assets\\thumbnails\\" + model_name[:-4] + ".png"
-            if os.path.exists(thumbnail_path) == False:
-                thumbnail_object = ThreeDViewer()
-                model_path = ".\\assets\\models\\" + model_name
-                thumbnail_object.generate_thumbnail(model_path)
-            thumbnail = QIcon(thumbnail_path)
-            item.setIcon(thumbnail)
+
+            # Important Path problem!!
+            # The mac and windows path are different, so we need to build the path differently
+            # Build a cross‑platform path to the thumbnails folder at project root
+            project_root = Path(__file__).parent.parent
+            thumbnail_path = project_root / "assets" / "thumbnails" / (model_name[:-4] + ".png")
+
+            # TODO : The thumbnail generation logic need to fix
+            # Ensure we have a local copy of the model before generating thumbnail
+            # This will download from backend if needed
+            if not thumbnail_path.exists():
+                model_id = model.get("id")
+                model_path_fs: str | None = None
+                try:
+                    if model_id is not None and hasattr(self.data_manager, "get_model_path"):
+                        path_obj = self.data_manager.get_model_path(model_id)
+                        if path_obj is not None:
+                            model_path_fs = str(path_obj)
+                except Exception as e:
+                    print(f"Error resolving model path for thumbnail (id={model_id}): {e}")
+                    model_path_fs = None
+
+                if model_path_fs and os.path.exists(model_path_fs):
+                    try:
+                        thumbnail_object = ThreeDViewer()
+                        thumbnail_object.generate_thumbnail(model_path_fs)
+                    except Exception as e:
+                        print(f"Error generating thumbnail for '{model_name}': {e}")
+
+            if thumbnail_path.exists():
+                thumbnail = QIcon(str(thumbnail_path))
+                item.setIcon(thumbnail)
 
             self.model_list.addItem(item)
 
@@ -112,7 +157,7 @@ class GalleryPage(BasePage):
             self.populate_model_list(filtered_models)
     
     def on_model_selected(self, item: QListWidgetItem):
-        """When someone clicks a model, open it in the 3D viewer"""
+        """When the user clicks a model, open it in the 3D viewer"""
         model = item.data(Qt.ItemDataRole.UserRole)
         if not model:
             return
@@ -129,10 +174,14 @@ class GalleryPage(BasePage):
 
 
 class AIGenerationPage(BasePage):
-    """Page where you can type a description and have AI generate a 3D model"""
+    """Page where the user can type a description and the api call will generate a 3D model"""
     
-    def __init__(self, parent=None):
-        """Create the AI generation page"""
+    # TODO : The logic we need to rewrite here, once the AI generation is done, we need to automatically turn to the viewer page and load the model
+
+    def __init__(self, data_manager: ClientDataManager, gallery_page: GalleryPage | None = None, parent=None):
+        self.data_manager = data_manager
+        self.gallery_page = gallery_page
+        self.meshy_client: MeshyClient | None = None
         super().__init__(parent)
     
     def setup_ui(self):
@@ -151,7 +200,7 @@ class AIGenerationPage(BasePage):
         desc_label.setStyleSheet("color: #666; margin-bottom: 20px;")
         layout.addWidget(desc_label)
 
-        # Text input area (like ChatGPT)
+        # Text input area
         self.prompt_input = QTextEdit()
         self.prompt_input.setPlaceholderText(
             "Describe the 3D model you want to generate...\n\n"
@@ -179,21 +228,151 @@ class AIGenerationPage(BasePage):
                 background-color: #3d8b40;
             }
         """)
-        # TODO: Connect to API client in Week 5
         self.generate_button.clicked.connect(self.on_generate_clicked)
         layout.addWidget(self.generate_button)
 
-        # Add stretch to push content to top
+        # Status label for basic feedback
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("color: #444; margin-top: 8px;")
+        layout.addWidget(self.status_label)
         layout.addStretch()
     
     def get_prompt(self) -> str:
-        """Returns whatever text the user typed in"""
+        # TODO : We need to check if the prompt is properly formatted
         return self.prompt_input.toPlainText().strip()
+
+    def _ensure_meshy_client(self) -> MeshyClient | None:
+        """Create Meshy client if needed, handling missing API key gracefully."""
+        if self.meshy_client is not None:
+            return self.meshy_client
+        try:
+            self.meshy_client = MeshyClient()
+            return self.meshy_client
+        except Exception as e:
+            # Most likely missing MESHY_API_KEY or network issues
+            msg = f"Meshy client init failed: {e}"
+            print(msg)
+            self.status_label.setText(
+                "Error: Meshy API is not configured. Please set the MESHY_API_KEY environment variable."
+            )
+            return None
+    # TODO : This logic need to be rewritten, since we have the datamanager have function called get_next_id
+    def _next_model_id(self) -> str:
+        """Generate next model id, mirroring backend DataManager.get_next_id() behavior."""
+        models = self.data_manager.get_all_models()
+        ids = []
+        for m in models:
+            mid = str(m.get("id") or "")
+            if mid.startswith("model_"):
+                try:
+                    ids.append(int(mid.replace("model_", "")))
+                except ValueError:
+                    continue
+        if not ids:
+            return "model_001"
+        return f"model_{max(ids) + 1:03d}"
+
+    def _build_filename(self, model_id: str, prompt: str) -> str:
+        """Create a reasonably safe filename from model id + prompt."""
+        safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", prompt.strip().lower()) or "model"
+        if len(safe) > 40:
+            safe = safe[:40]
+        return f"{model_id}_{safe}.obj"
+
+    # TODO : We can add this to backend instead, so the backend will handle the generation and upload
+    async def _generate_and_upload(self, prompt: str) -> None:
+        """Async workflow: Meshy -> download OBJ -> upload to backend (which mirrors to GCS)."""
+        client = self._ensure_meshy_client()
+        if client is None:
+            return
+        
+        self.status_label.setText("Calling Meshy to generate 3D model (this may take some time)...")
+        result = await client.generate_model(prompt)
+        if not result.get("success"):
+            error = result.get("error") or "unknown error"
+            print(f"Meshy generation failed: {error}")
+            self.status_label.setText(f"Meshy generation failed: {error}")
+            return
+
+        obj_url = result.get("obj_url")
+        if not obj_url:
+            self.status_label.setText("Meshy result does not contain an OBJ download URL.")
+            return
+
+        # Decide local save path (also acts as client cache)
+        assets_dir = Path(__file__).parent.parent / "assets"
+        models_dir = assets_dir / "models"
+        models_dir.mkdir(parents=True, exist_ok=True)
+
+        model_id = self._next_model_id()
+        filename = self._build_filename(model_id, prompt)
+        local_path = models_dir / filename
+
+        self.status_label.setText("Downloading OBJ model from Meshy...")
+        ok = await client.download_model(obj_url, str(local_path))
+        if not ok:
+            self.status_label.setText("Failed to download OBJ from Meshy.")
+            return
+
+        # Read bytes to upload to backend; backend will save locally and upload to GCS (if configured)
+        try:
+            file_bytes = local_path.read_bytes()
+        except OSError as e:
+            print(f"Error reading downloaded OBJ file: {e}")
+            self.status_label.setText("Failed to read downloaded OBJ file.")
+            return
+
+        display_name = prompt.strip() or "AI Generated Model"
+        tags = ["ai", "meshy"]
+
+        self.status_label.setText("Uploading model to backend (will write to DB and sync to GCS)...")
+        try:
+            # Uses FastAPI backend /models endpoint; backend will call DataManager.save_model_to_gallery
+            resp = self.data_manager.api.upload_model(
+                name=display_name,
+                tags=tags,
+                file_bytes=file_bytes,
+                filename=filename,
+                model_id=model_id,
+            )
+            print(f"Upload response: {resp}")
+        except Exception as e:
+            print(f"Error uploading model to backend: {e}")
+            self.status_label.setText("Upload to backend / GCS failed.")
+            return
+
+        # Refresh in-memory list and optionally refresh gallery UI
+        self.data_manager.get_all_models()
+        if self.gallery_page is not None:
+            try:
+                self.gallery_page.load_models()
+            except Exception as e:
+                print(f"Error refreshing gallery page: {e}")
+
+        self.status_label.setText("Generation complete: model has been added to Gallery and uploaded to GCP.")
 
     def on_generate_clicked(self):
         """When the generate button is pressed"""
-        print("generate clicked")
-        return
+        prompt = self.get_prompt()
+        if not prompt:
+            self.status_label.setText("Please enter a text description to generate a 3D model.")
+            return
+
+        # Basic UI feedback
+        self.generate_button.setEnabled(False)
+        self.generate_button.setText("Generating...")
+        self.status_label.setText("Calling Meshy API to generate model...")
+
+        try:
+            # Run the async workflow in a fresh event loop (PyQt main thread has no asyncio loop)
+            asyncio.run(self._generate_and_upload(prompt))
+            self.generate_button.setText("Generate Again")
+        except Exception as e:
+            print(f"Error during AI generation flow: {e}")
+            self.status_label.setText(f"Error occurred during generation flow: {e}")
+            self.generate_button.setText("Generate")
+        finally:
+            self.generate_button.setEnabled(True)
 
     def clear_prompt(self):
         """Wipe out the text in the input box"""
@@ -293,7 +472,6 @@ class ViewerPage(BasePage):
             self.viewer.add_light(self.light)
 
             # Default to viewing the model from the "front"
-            # Assume the model's forward direction is the Z axis (+Z forward) and Y is the vertical up axis
             cx, cy, cz = mesh.center
             distance = max(getattr(mesh, "length", 1.0), 1.0)
             camera_pos = (cx, cy, cz + 1.5 * distance)  # In +Z direction, looking straight at the model

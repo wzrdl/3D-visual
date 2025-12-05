@@ -3,6 +3,7 @@
 widget for displaying 3D models in the main window
 """
 import sys
+from pathlib import Path
 
 from PyQt6.QtWidgets import QWidget, QApplication
 from PyQt6.QtCore import Qt
@@ -28,14 +29,7 @@ class ThreeDViewer(QtInteractor):
 
     @staticmethod
     def load_model(file_path: str):
-        """load a 3D model from file path and return the mesh
-        
-        Args:
-            file_path: The absolute or relative path of the file that contains the 3D model
-            
-        Returns:
-            pyvista mesh object
-        """
+        """load a 3D model from file path and return the mesh"""
         print("reading file path", file_path)
         mesh = pv.read(file_path)
         return mesh
@@ -62,17 +56,25 @@ class ThreeDViewer(QtInteractor):
         mesh = pv.read(file_path)
         thumbnail.add_mesh(mesh)
         thumbnail.set_background("white")
-
-        # works for windows -- idk about mac
-        file_name = file_path.split('\\')[-1].replace('.obj', '.png')
+        # I change the file path for both mac and windows
+        # Cross‑platform file/thumbnail paths
+        src_path = Path(file_path)
+        file_name = src_path.name.replace(".obj", ".png")
         print(file_name)
+
+        # Thumbnails live under project_root/assets/thumbnails
+        project_root = Path(__file__).parent.parent
+        thumbnails_dir = project_root / "assets" / "thumbnails"
+        thumbnails_dir.mkdir(parents=True, exist_ok=True)
+        thumbnail_path = thumbnails_dir / file_name
+
         # positioning the camera
         thumbnail.view_isometric()
         # to include the full model
         thumbnail.reset_camera()
         # optional zoom
         thumbnail.camera.zoom(0.9)
-        thumbnail.screenshot(f"assets\\thumbnails\\{file_name}")
+        thumbnail.screenshot(str(thumbnail_path))
         thumbnail.close() # IMPORTANT
 
     def clear(self):

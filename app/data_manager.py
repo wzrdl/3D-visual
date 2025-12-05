@@ -3,10 +3,6 @@ DataManager - handles the local dataset stuff
 Uses SQLite for persistent storage of 3D model metadata
 """
 
-# TODO: add a new function to delete a model from the database and the gallery
-# TODO: add a new function to update a model in the database and the gallery
-# TODO: add a new file with detailed instructions that we can add models to the database and the gallery
-
 import json
 import os
 import sqlite3

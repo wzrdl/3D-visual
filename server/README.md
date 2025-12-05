@@ -132,7 +132,7 @@ gcloud run deploy d3-visual-backend \
   --platform managed \
   --region us-east1 \
   --allow-unauthenticated \
-  --set-env-vars GCS_MODELS_BUCKET=my-3d-model-bucket,GCS_MODELS_PREFIX=models/
+  --set-env-vars=GCS_MODELS_BUCKET=my-3d-model-bucket,GCS_MODELS_PREFIX=models/
 ```
 
 Cloud Run will respond with a service URL similar to:

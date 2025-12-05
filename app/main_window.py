@@ -12,14 +12,14 @@ from app.client_data_manager import ClientDataManager
 from app.pages import GalleryPage, AIGenerationPage, ViewerPage
 
 # Suppress VTK warnings during cleanup
-# os.environ['VTK_LOGGING_LEVEL'] = 'ERROR'
+os.environ['VTK_LOGGING_LEVEL'] = 'ERROR'
 
 
 class MainWindow(QMainWindow):
     """The main window that holds all the tabs"""
     
     def __init__(self):
-        """Create the main window"""
+        """Class constructor, we set the window title and geometry, and create the data manager"""
         super().__init__()
         self.setWindowTitle("3D Model Generator & Library")
         self.setGeometry(100, 100, 1200, 800)
@@ -40,21 +40,28 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setTabPosition(QTabWidget.TabPosition.North)
         
-        # Page 1: Gallery (with callback to viewer page)
+        # Page 1: Gallery Page
         self.gallery_page = GalleryPage(
             data_manager=self.data_manager,
-            viewer_page_callback=self.on_model_selected_callback
+            viewer_page_callback=self.on_model_selected_callback,
         )
         self.tabs.addTab(self.gallery_page, "Gallery")
-        
-        # Page 2: AI Generation
-        self.ai_generation_page = AIGenerationPage()
+
+        # Page 2: AI Generation Page
+        self.ai_generation_page = AIGenerationPage(
+            # We need to pass the data manager 
+            # so the AI generation page can upload the model to the backend
+            data_manager=self.data_manager, 
+            # We need to pass the gallery page so the AI generation page can refresh the gallery
+            gallery_page=self.gallery_page,
+        )
         self.tabs.addTab(self.ai_generation_page, "AI Generation")
         
-        # Page 3: 3D Viewer
+        # Page 3: 3D Viewer Page
         self.viewer_page = ViewerPage()
         self.tabs.addTab(self.viewer_page, "3D Viewer")
 
+        # TODO: the logic we need to rewrite
         """
         # link buttons to this
         self.viewer_page.download_button.clicked.connect(self.clicked_download_button)

@@ -1,13 +1,9 @@
 """
 Simple wrapper around Google Cloud Storage for storing and fetching 3D model files.
 
-This is intentionally small and optional:
-- If you don't configure a GCS bucket, nothing in the app will change.
-- If you set the env vars below, models will be pulled from GCS on demand.
-
 Required environment variables:
 - GCS_MODELS_BUCKET: name of the Cloud Storage bucket that holds model files
-- (optional) GCS_MODELS_PREFIX: path prefix inside the bucket, default "models/"
+- GCS_MODELS_PREFIX: path prefix inside the bucket, default "models/"
 """
 
 from __future__ import annotations
@@ -36,8 +32,8 @@ class GCSModelStorage:
     def client(self) -> storage.Client:
         if self._client is None:
             # This uses Application Default Credentials.
-            # On local dev you typically set GOOGLE_APPLICATION_CREDENTIALS
-            # pointing to your service-account JSON file.
+            # On local dev we typically set GOOGLE_APPLICATION_CREDENTIALS
+            # pointing to the service-account JSON file.
             self._client = storage.Client()
         return self._client
 
