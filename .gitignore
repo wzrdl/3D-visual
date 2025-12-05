@@ -41,3 +41,5 @@ Thumbs.db
 # Application specific
 *.log
 *.tmp
+
+.env
