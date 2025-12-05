@@ -12,7 +12,7 @@ from app.client_data_manager import ClientDataManager
 from app.pages import GalleryPage, AIGenerationPage, ViewerPage
 
 # Suppress VTK warnings during cleanup
-# os.environ['VTK_LOGGING_LEVEL'] = 'ERROR'
+os.environ['VTK_LOGGING_LEVEL'] = 'ERROR'
 
 
 class MainWindow(QMainWindow):
@@ -43,12 +43,15 @@ class MainWindow(QMainWindow):
         # Page 1: Gallery (with callback to viewer page)
         self.gallery_page = GalleryPage(
             data_manager=self.data_manager,
-            viewer_page_callback=self.on_model_selected_callback
+            viewer_page_callback=self.on_model_selected_callback,
         )
         self.tabs.addTab(self.gallery_page, "Gallery")
-        
-        # Page 2: AI Generation
-        self.ai_generation_page = AIGenerationPage()
+
+        # Page 2: AI Generation (passes data_manager + gallery_page so new models flow end-to-end)
+        self.ai_generation_page = AIGenerationPage(
+            data_manager=self.data_manager,
+            gallery_page=self.gallery_page,
+        )
         self.tabs.addTab(self.ai_generation_page, "AI Generation")
         
         # Page 3: 3D Viewer
