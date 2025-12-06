@@ -1,3 +1,4 @@
+import torch
 import os
 import sys
 
@@ -12,8 +13,8 @@ By the end, it will delete the thumbnail to not add clutter
 """
 from app.viewer import ThreeDViewer
 
-@pytest.mark.skip(reason="successful, no need to see this each time for now")
 # WORKS
+@pytest.mark.skip(reason="successful, no need to see this each time for now")
 def test_generate_thumbnail():
     app = QApplication(sys.argv)
 
@@ -36,8 +37,8 @@ Passing the add_model function something that does exist
 """
 from app.data_manager import DataManager
 
-@pytest.mark.skip(reason="successful, no need to see this each time for now")
 # WORKS
+@pytest.mark.skip(reason="successful, no need to see this each time for now")
 def test_add_model_exists():
     object = DataManager()
 
@@ -62,9 +63,7 @@ from sentence_transformers import SentenceTransformer, util
 import json
 from app.client_data_manager import ClientDataManager
 
-@pytest.mark.skip(reason="unfinsihed")
 def test_vector_database():
-    #app = QApplication(sys.argv)
 
     # making temporary meta.json file to test with
     temp_data = [
@@ -76,29 +75,43 @@ def test_vector_database():
 
     temp_data_path = "assets/pytest assets/test_meta.json"
 
-    os.makedirs(os.path.dirname(temp_data_path), exist_ok=True) # make sure it exists? if not will make
+    os.makedirs(os.path.dirname(temp_data_path), exist_ok=True)  # make sure it exists? if not will make
     with open(temp_data_path, "w") as f:
         json.dump(temp_data, f)
 
     # running function
-    vector = ClientDataManager()
-    vector.concatenate_name_tags(temp_data_path)
+    vector = ClientDataManager(load_without_test=False)
+    name_order = vector.concatenate_name_tags(temp_data_path)
+    embedder = vector.miniM_model  # to reduce the amount of __.__.__ we have
 
-    # testing
-    test_word = "forest"
-    test_embedding = vector.miniM_model.encode(test_word)
+    # testing test_word -- SBERT.net recommends using query for this
+    query = "forest"
+    query_embedding = embedder.encode_query(query)
 
     # seeing the scores or calculations for the test
-    calculations = util.cos_sim(test_embedding, vector.vector_database)
+    similarity_score = util.cos_sim(query_embedding, vector.vector_database)
+    # makes it a 2D grid with the first [0] being the query and the second holding the
+    # different temp_data lines
 
-    print(calculations)
+    # find the closest matches
+    top_k = min(2, len(similarity_score))
+
+    scores, indices = torch.topk(similarity_score[0], k=top_k)
+
+    #print("Query: ", query)
+    for score, index in zip(scores, indices):
+        filename = name_order[index]
+        #print(f"Filename: {filename}, (Score: {score:4f}) at index: {index}")
+
+    assert similarity_score[0][0] > similarity_score[0][1] # tree > flower
+    assert filename == "tree.obj"
 
 from app.pages import GalleryPage
 """
 Pytest #4
 Search bar returns the right amount of models per the tag searched 
 """
-@pytest.skip(reason = "Not finished")
+@pytest.mark.skip(reason = "Not finished")
 def test_tag_gallery_search():
     app = QApplication(sys.argv)
 

@@ -51,7 +51,7 @@ class ClientDataManager:
             # combine name and tags
             meta_json_path = "app/assets/metadata.json.backup"
             if os.path.exists(meta_json_path):
-                self.concatenate_name_tags(meta_json_path)
+                self.name_order = self.concatenate_name_tags(meta_json_path)
             else:
                 print("Error: could not load meta.json")
 
@@ -148,7 +148,7 @@ class ClientDataManager:
     def concatenate_name_tags(self, metajson_location: str) -> str:
 
         name_tags = []
-        # name_order = [] # to store the order of the filenames for easier reference
+        name_order = [] # to store the order of the filenames for easier reference
 
         # from the data_manager.py initial migration from json
         # Migrate from JSON
@@ -164,9 +164,12 @@ class ClientDataManager:
 
             # concatenate filename and tags
             name_tags.append(filename[:-4] + " " + " ".join(tags))
-            # name_order.append(filename)
+            name_order.append(filename)
         #print(name_tags) # to test how it looks
 
-        embeddings = self.miniM_model.encode(name_tags)
+        embeddings = self.miniM_model.encode_document(name_tags)
+            # document recommended to use for encode for "your corpus"
         self.vector_database = embeddings
         print(self.vector_database)
+
+        return name_order
