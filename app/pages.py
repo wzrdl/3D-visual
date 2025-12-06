@@ -334,18 +334,30 @@ class ViewerPage(BasePage):
         return file_name
 
         # for buttons
-    def clicked_download_button(self):
-        """When the download button is pressed"""
+    def clicked_download_button(self, other_folder = None, other_name = None):
+        """When the download button is pressed
+        Other folder set for pytest purposes, as I do not want to send a lot of files to the downloads
+        """
+
         print("download clicked")
         self.download_button.setText("File Downloaded")
-        file_name = self.file_name_from_model_path()
 
-        download_path = pathlib.Path.home() / 'Downloads' # works for windows computer
+        if other_name != None:
+            file_name = other_name
+            model_path_local = "assets/pytest assets/cone_test.obj"
+        else:
+            file_name = self.file_name_from_model_path()
+            model_path_local = self.model_path # added for pytest purposes
+
+        if other_folder != None:
+            download_path = pathlib.Path(other_folder)
+        else:
+            download_path = pathlib.Path.home() / 'Downloads' # works for windows computer
 
         if os.path.exists(str(download_path / file_name)):
             file_name = self.file_name_exists(file_name)
 
-        shutil.copyfile(self.model_path, file_name)
+        shutil.copyfile(model_path_local, file_name)
         shutil.move(file_name, download_path)
 
         return
