@@ -17,16 +17,16 @@ from app.viewer import ThreeDViewer
 def test_generate_thumbnail():
     app = QApplication(sys.argv)
 
-    file_name = "assets\\pytest assets\\cone_test.obj"
+    file_name = "assets/pytest assets/cone_test.obj"
     object = ThreeDViewer()
     object.generate_thumbnail(file_name)
 
     # checks if it makes the png file
-    check = os.path.exists("assets\\thumbnails\\cone_test.png")
+    check = os.path.exists("assets/thumbnails/cone_test.png")
 
     # cleans up the new file
     if check == True:
-        os.remove("assets\\thumbnails\\cone_test.png")
+        os.remove("assets/thumbnails/cone_test.png")
 
     assert check == True
 
@@ -53,9 +53,49 @@ def test_add_model_exists():
 
     assert object.add_model(id_number, file_name, name, tags) == False
 
-from app.pages import GalleryPage
 """
 Pytest #3
+Vector Database logic works correctly
+"""
+
+from sentence_transformers import SentenceTransformer, util
+import json
+from app.client_data_manager import ClientDataManager
+
+@pytest.mark.skip(reason="unfinsihed")
+def test_vector_database():
+    #app = QApplication(sys.argv)
+
+    # making temporary meta.json file to test with
+    temp_data = [
+        {"filename": "tree.obj", "tags": ["leaves", "natural", "wood", "green"]},
+        {"filename": "flower.obj", "tags": ["petals", "natural", "colorful"]},
+        {"filename": "chair.obj", "tags": ["wood", "furniture", "legs"]},
+        {"filename": "keyboard.obj", "tags": ["mechanical", "silicon", "keys"]}
+    ]
+
+    temp_data_path = "assets/pytest assets/test_meta.json"
+
+    os.makedirs(os.path.dirname(temp_data_path), exist_ok=True) # make sure it exists? if not will make
+    with open(temp_data_path, "w") as f:
+        json.dump(temp_data, f)
+
+    # running function
+    vector = ClientDataManager()
+    vector.concatenate_name_tags(temp_data_path)
+
+    # testing
+    test_word = "forest"
+    test_embedding = vector.miniM_model.encode(test_word)
+
+    # seeing the scores or calculations for the test
+    calculations = util.cos_sim(test_embedding, vector.vector_database)
+
+    print(calculations)
+
+from app.pages import GalleryPage
+"""
+Pytest #4
 Search bar returns the right amount of models per the tag searched 
 """
 @pytest.skip(reason = "Not finished")
@@ -64,15 +104,3 @@ def test_tag_gallery_search():
 
     object = GalleryPage()
     object.filter_models("round")
-
-
-
-""" 
-Pytest #4
-
-"""
-
-"""
-Pytest #5
-
-"""

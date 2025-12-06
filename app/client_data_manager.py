@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import List, Dict, Optional
 
 from app.backend_client import BackendAPIClient
-
+from sentence_transformers import SentenceTransformer
 
 class ClientDataManager:
     """Client-side data manager using FastAPI backend + local cache."""
@@ -26,6 +26,7 @@ class ClientDataManager:
         self,
         api_url: Optional[str] = None,
         assets_dir: Optional[str] = None,
+        load_without_test = True
     ):
         # API client (talks to FastAPI backend)
         self.api = BackendAPIClient(api_url=api_url)
@@ -43,6 +44,21 @@ class ClientDataManager:
         # In-memory cache of model metadata to avoid repeated HTTP calls
         self._all_models: List[Dict] = []
 
+        # sentence transformer, loading mini models
+        self.miniM_model = SentenceTransformer("all-MiniLM-L6-v2") # 'all-mpnet-base-v2' for more accuracy?
+
+        if load_without_test == True:
+            # combine name and tags
+            meta_json_path = "app/assets/metadata.json.backup"
+            if os.path.exists(meta_json_path):
+                self.concatenate_name_tags(meta_json_path)
+            else:
+                print("Error: could not load meta.json")
+
+        self.vector_database = None # as it shouldn't be a standard vector []
+        """
+        POSSIBLY: make concatenate return name_order and set self.name_order = concatenate etc. 
+        """
     # metadata 
 
     def get_all_models(self) -> List[Dict]:
@@ -128,4 +144,29 @@ class ClientDataManager:
         except Exception:
             pass
 
+    """ Infrastructure and Vector Database """
+    def concatenate_name_tags(self, metajson_location: str) -> str:
 
+        name_tags = []
+        # name_order = [] # to store the order of the filenames for easier reference
+
+        # from the data_manager.py initial migration from json
+        # Migrate from JSON
+
+        with open(metajson_location, 'r', encoding='utf-8') as f:
+            metadata = json.load(f)
+
+        for entry in metadata:
+            #model_id = entry.get('id')
+            filename = entry.get('filename')
+            #display_name = entry.get('name', filename)  # Use 'name' from JSON as display_name
+            tags = entry.get('tags', [])
+
+            # concatenate filename and tags
+            name_tags.append(filename[:-4] + " " + " ".join(tags))
+            # name_order.append(filename)
+        #print(name_tags) # to test how it looks
+
+        embeddings = self.miniM_model.encode(name_tags)
+        self.vector_database = embeddings
+        print(self.vector_database)
