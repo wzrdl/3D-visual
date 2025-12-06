@@ -117,10 +117,10 @@ class GalleryPage(BasePage):
             # Build a cross‑platform path to the thumbnails folder at project root
             project_root = Path(__file__).parent.parent
             thumbnail_path = project_root / "assets" / "thumbnails" / (model_name[:-4] + ".png")
-
-            # TODO : The thumbnail generation logic need to fix
-            # Ensure we have a local copy of the model before generating thumbnail
-            # This will download from backend if needed
+            # thumbnail = project_root + "assets" + "thumbnails" + (model_name[:-4] + ".png")
+            # TODO : The thumbnail generation logic need to fix we need to update the thumnbnail
+            # to the cloud storage bucket instead of the local copy
+            
             if not thumbnail_path.exists():
                 model_id = model.get("id")
                 model_path_fs: str | None = None
