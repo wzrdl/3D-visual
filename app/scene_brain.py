@@ -9,7 +9,6 @@ class SceneBrain():
         self.keywords = []
         self.top_matches = []
         self.stopwords = set()
-        self.stop_words_set()
 
         # as these are used often
         self.cdm = ClientDataManager() # cdm for ease
@@ -17,16 +16,16 @@ class SceneBrain():
 
     def stop_words_set(self):
 
-        file = "stopwords.txt"
+        file = "assets/stopwords.txt"
         myFile = open(file, "r")
         for line in myFile:
             self.stopwords.add(line.strip())
         myFile.close()
 
-        return
+        return self.stopwords
 
     # takes user input and finds keywords from it
-    def extract_keywords(self, user_input):
+    def extract_keywords(self, user_input: str):
         """
         From user input, separates keywords that we can later use
         """
@@ -36,8 +35,8 @@ class SceneBrain():
         split_input = user_input.split(" ") # splits based on a space
 
         # just in case there are irregular spaces
-        for word in split_input:
-            split_input[word] = split_input[word].strip()
+        for i in range(len(split_input)-1):
+            split_input[i] = split_input[i].strip()
 
         clean_list = []
 
@@ -49,19 +48,21 @@ class SceneBrain():
         remove_stopwords = True  # adjust this for what we want
 
         if remove_stopwords == True:
-            for word in split_input:
-                if word not in self.stop_words_set():
-                    clean_list.append(word)
+            self.stopwords = self.stop_words_set()
+
+            for i in range(len(split_input) - 1):
+                if split_input[i] not in self.stop_words_set():
+                    clean_list.append(split_input[i])
         else:
-            for word in split_input:
-                clean_list.append(word)
+            for i in range(len(split_input) - 1):
+                clean_list.append(split_input[i])
 
         return clean_list
 
-    def keywords_to_vector(self, user_input: List[str]):
+    def keywords_to_vector(self, user_input: str):
         self. keywords = self.extract_keywords(user_input)
 
-        queries = self.keywords
+        queries = " ".join(self.keywords)
         query_embedding = self.embedder.encode_query(queries)
 
         # seeing the scores or calculations for the test
@@ -69,14 +70,24 @@ class SceneBrain():
         # makes it a 2D grid with the first [0] being the query and the second holding the
         #       different temp_data lines
 
-        """ likely need edits here especially """
-        scores, indices = torch.topk(similarity_score[0])
+        all_names = self.cdm.name_order
+        k = len(all_names)
+
+        if k > 0:
+            scores, indices = torch.topk(similarity_score[0], k=k)
+        else:
+            return ["placeholder"]
+
+        """Edit this as we see fit"""
+        match_accuracy = 0.4
+        # 0.5 was too high for the pytest
 
         # checking which scores are more than 0.5
         for score, index in zip(scores, indices):
-            if score > 0.5:
-                self.top_matches.append(self.keywords[index])
-                print(f"MATCH: {self.keywords[index]} has a score of ({score:4f})")
+            if score > match_accuracy:
+                match_name = self.cdm.name_order[index]
+                self.top_matches.append(match_name)
+                print(f"MATCH: {match_name} has a score of ({score:4f})")
 
         # if there is no good match -- prevents error
         if len(self.top_matches) == 0:

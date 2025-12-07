@@ -14,7 +14,7 @@ import json
 import os
 import shutil
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 
 from app.backend_client import BackendAPIClient
 from sentence_transformers import SentenceTransformer
@@ -46,19 +46,17 @@ class ClientDataManager:
 
         # sentence transformer, loading mini models
         self.miniM_model = SentenceTransformer("all-MiniLM-L6-v2") # 'all-mpnet-base-v2' for more accuracy?
+        self.name_order = [] # to be easier to use for scene_brain
+        self.vector_database = None  # as it shouldn't be a standard vector []
 
         if load_without_test == True:
             # combine name and tags
             meta_json_path = "app/assets/metadata.json.backup"
             if os.path.exists(meta_json_path):
-                self.concatenate_name_tags(meta_json_path)
+                self.name_order, self.vector_database = self.concatenate_name_tags(meta_json_path)
             else:
                 print("Error: could not load meta.json")
 
-        self.vector_database = None # as it shouldn't be a standard vector []
-        """
-        POSSIBLY: make concatenate return name_order and set self.name_order = concatenate etc. 
-        """
     # metadata 
 
     def get_all_models(self) -> List[Dict]:
@@ -145,8 +143,9 @@ class ClientDataManager:
             pass
 
     """ Infrastructure and Vector Database """
-    def concatenate_name_tags(self, metajson_location: str = None) -> str:
+    def concatenate_name_tags(self, metajson_location: str = None):
         name_tags = []
+        self.name_order = []
 
         # default
         if metajson_location is None:
@@ -161,6 +160,7 @@ class ClientDataManager:
                         tags = [tags]
 
                 name_tags.append(model_name.lower() + " " + " ".join(tags))
+                self.name_order.append(model_name.lower())
 
         else:
 
@@ -178,11 +178,11 @@ class ClientDataManager:
 
                 # concatenate filename and tags
                 name_tags.append(model_name.lower() + " " + " ".join(tags))
-                #name_order.append(filename)
+                self.name_order.append(model_name.lower())
 
         embeddings = self.miniM_model.encode_document(name_tags)
             # document recommended to use for encode for "your corpus"
         self.vector_database = embeddings
         #print(self.vector_database)
 
-        return
+        return self.name_order, self.vector_database

@@ -63,7 +63,7 @@ from sentence_transformers import SentenceTransformer, util
 import json
 from app.client_data_manager import ClientDataManager
 
-#@pytest.mark.skip(reason="successful")
+@pytest.mark.skip(reason="successful")
 def test_vector_database():
 
     # making temporary meta.json file to test with
@@ -110,14 +110,43 @@ def test_vector_database():
     assert name == "tree"
     assert best_score > 0.4
 
-from app.pages import GalleryPage
+from app.scene_brain import SceneBrain
 """
-Pytest #4
-Search bar returns the right amount of models per the tag searched 
+Pyest #4 
+Connecting user input to temporary data 
 """
-@pytest.mark.skip(reason = "Not finished")
-def test_tag_gallery_search():
-    app = QApplication(sys.argv)
+@pytest.mark.skip(reason="successful")
+def test_user_input():
 
-    gp = GalleryPage()
-    gp.filter_models("round")
+    #copied from Pytest #3
+    # making temporary meta.json file to test with
+    temp_data = [
+        {"name": "tree", "tags": ["leaves", "natural", "wood", "green"]},
+        {"name": "flower", "tags": ["petals", "natural", "colorful"]},
+        {"name": "chair", "tags": ["wood", "furniture", "legs"]},
+        {"name": "keyboard", "tags": ["mechanical", "silicon", "keys"]}
+    ]
+
+    temp_data_path = "assets/pytest assets/test_meta.json"
+    #name_order = ["tree", "flower", "chair", "keyboard"]
+
+    os.makedirs(os.path.dirname(temp_data_path), exist_ok=True)  # make sure it exists? if not will make
+    with open(temp_data_path, "w") as f:
+        json.dump(temp_data, f)
+
+    # running function
+    cdm = ClientDataManager(load_without_test=False)
+    cdm.name_order, cdm.vector_database = cdm.concatenate_name_tags(temp_data_path)
+    #embedder = cdm.miniM_model
+
+    sb = SceneBrain()
+    sb.cdm = cdm
+    user_input = "I want a green forest"
+
+    top_matches = []
+    top_matches = sb.keywords_to_vector(user_input)
+
+    #print(top_matches)
+
+    assert top_matches[0] == "tree"
+
