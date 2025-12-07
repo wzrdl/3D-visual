@@ -1,1 +1,1 @@
-[{"filename": "tree.obj", "tags": ["leaves", "natural", "wood", "green"]}, {"filename": "flower.obj", "tags": ["petals", "natural", "colorful"]}, {"filename": "chair.obj", "tags": ["wood", "furniture", "legs"]}, {"filename": "keyboard.obj", "tags": ["mechanical", "silicon", "keys"]}]
+[{"name": "tree", "tags": ["leaves", "natural", "wood", "green"]}, {"name": "flower", "tags": ["petals", "natural", "colorful"]}, {"name": "chair", "tags": ["wood", "furniture", "legs"]}, {"name": "keyboard", "tags": ["mechanical", "silicon", "keys"]}]

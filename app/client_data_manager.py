@@ -51,7 +51,7 @@ class ClientDataManager:
             # combine name and tags
             meta_json_path = "app/assets/metadata.json.backup"
             if os.path.exists(meta_json_path):
-                self.name_order = self.concatenate_name_tags(meta_json_path)
+                self.concatenate_name_tags(meta_json_path)
             else:
                 print("Error: could not load meta.json")
 
@@ -145,31 +145,44 @@ class ClientDataManager:
             pass
 
     """ Infrastructure and Vector Database """
-    def concatenate_name_tags(self, metajson_location: str) -> str:
-
+    def concatenate_name_tags(self, metajson_location: str = None) -> str:
         name_tags = []
-        name_order = [] # to store the order of the filenames for easier reference
 
-        # from the data_manager.py initial migration from json
-        # Migrate from JSON
+        # default
+        if metajson_location is None:
 
-        with open(metajson_location, 'r', encoding='utf-8') as f:
-            metadata = json.load(f)
+            for m in self._all_models:
+                model_name = str(m.get("display_name") or m.get("name") or "")
+                tags = m.get("tags") or []
+                if isinstance(tags, str):
+                    try:
+                        tags = json.loads(tags)
+                    except Exception:
+                        tags = [tags]
 
-        for entry in metadata:
-            #model_id = entry.get('id')
-            filename = entry.get('filename')
-            #display_name = entry.get('name', filename)  # Use 'name' from JSON as display_name
-            tags = entry.get('tags', [])
+                name_tags.append(model_name.lower() + " " + " ".join(tags))
 
-            # concatenate filename and tags
-            name_tags.append(filename[:-4] + " " + " ".join(tags))
-            name_order.append(filename)
-        #print(name_tags) # to test how it looks
+        else:
+
+            # from the data_manager.py initial migration from json
+            # Migrate from JSON
+
+            with open(metajson_location, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+
+            for entry in metadata:
+                #model_id = entry.get('id')
+                model_name = entry.get('display_name') or entry.get('name')
+                #display_name = entry.get('name', filename)  # Use 'name' from JSON as display_name
+                tags = entry.get('tags', [])
+
+                # concatenate filename and tags
+                name_tags.append(model_name.lower() + " " + " ".join(tags))
+                #name_order.append(filename)
 
         embeddings = self.miniM_model.encode_document(name_tags)
             # document recommended to use for encode for "your corpus"
         self.vector_database = embeddings
-        print(self.vector_database)
+        #print(self.vector_database)
 
-        return name_order
+        return
