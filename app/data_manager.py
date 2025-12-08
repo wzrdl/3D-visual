@@ -58,6 +58,9 @@ class DataManager:
         self._run_migrations()
         self._migrate_from_json()
 
+        # Sync remote objects into the local DB if a GCS bucket is configured
+        self._sync_models_from_gcs()
+
         #cleanup
         self.remove_nonexistent_models()
     def _init_gcs_storage(self) -> None:
@@ -198,7 +201,8 @@ class DataManager:
             model_id = row['id']
             file_path = self.get_model_path(model_id)
 
-            if file_path.exists() == False:
+            # Check if file_path is None or doesn't exist
+            if file_path is None or not file_path.exists():
                 cursor.execute("DELETE FROM models WHERE id = ?", (model_id,))
                 deleted_number += 1
 
@@ -313,6 +317,83 @@ class DataManager:
             if model_path.exists():
                 model_path.unlink()
             return False
+
+    def _sync_models_from_gcs(self) -> None:
+        """
+        Backfill the local SQLite metadata with objects that already exist in GCS.
+
+        This makes sure the /models endpoint returns entries for models that were
+        uploaded directly to the bucket (e.g., via UI or another service) and not
+        through this API.
+        """
+        if getattr(self, "gcs_storage", None) is None:
+            return
+
+        try:
+            remote_files = self.gcs_storage.list_model_files()  # type: ignore[union-attr]
+        except Exception as e:
+            print(f"Warning: failed to list models from GCS: {e}")
+            return
+
+        if not remote_files:
+            return
+
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id, filename FROM models")
+        existing = cursor.fetchall()
+
+        # Build quick lookup sets
+        existing_ids = {row["id"] for row in existing}
+        existing_filenames = {row["filename"] for row in existing}
+
+        new_rows = []
+        for entry in remote_files:
+            filename = entry.get("filename")
+            meta = entry.get("metadata", {}) or {}
+
+            if not filename or filename in existing_filenames:
+                continue
+
+            # Derive identifiers; fall back to filename stem
+            stem = Path(filename).stem
+            model_id = meta.get("id") or stem
+            display_name = meta.get("display_name") or meta.get("name") or stem
+            tags_raw = meta.get("tags", "[]")
+
+            # Try to parse tags from metadata; default to empty list
+            tags_list: List[str]
+            try:
+                tags_list = json.loads(tags_raw) if isinstance(tags_raw, str) else list(tags_raw)
+                if not isinstance(tags_list, list):
+                    tags_list = []
+            except Exception:
+                tags_list = []
+
+            # Avoid id collision even if filename is new
+            if model_id in existing_ids:
+                # generate a new id based on filename stem to avoid conflict
+                model_id = f"{stem}_{len(existing_ids) + len(new_rows) + 1}"
+
+            new_rows.append(
+                (model_id, filename, display_name, json.dumps(tags_list), datetime.now().isoformat())
+            )
+
+        if not new_rows:
+            return
+
+        try:
+            cursor.executemany(
+                """
+                INSERT INTO models (id, filename, display_name, tags, modified_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                new_rows,
+            )
+            self.conn.commit()
+            print(f"Synced {len(new_rows)} model(s) from GCS into local DB")
+        except sqlite3.Error as e:
+            print(f"Error syncing models from GCS: {e}")
+            self.conn.rollback()
     
     def get_next_id(self) -> str:
         """generate next available model id, since we don't have a primary key, 
@@ -349,18 +430,22 @@ class DataManager:
         cursor.execute("SELECT filename FROM models")
         existing_filenames = {row["filename"] for row in cursor.fetchall()}
 
-        # Find all .obj files in the models directory
-        obj_files = [p for p in self.models_dir.glob("*.obj") if p.is_file()]
+        # Find all .obj and .glb files in the models directory
+        model_files = [
+            p for p in self.models_dir.glob("*.obj") if p.is_file()
+        ] + [
+            p for p in self.models_dir.glob("*.glb") if p.is_file()
+        ]
 
         imported_count = 0
-        for obj_path in obj_files:
-            filename = obj_path.name
+        for model_path in model_files:
+            filename = model_path.name
             if filename in existing_filenames:
                 # Already in database, skip
                 continue
 
             model_id = self.get_next_id()
-            display_name = obj_path.stem  # filename without extension
+            display_name = model_path.stem  # filename without extension
             tags = list(default_tags)
 
             try:

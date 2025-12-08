@@ -42,8 +42,8 @@ Google Cloud Storage (GCS) and the desktop client.
 3. **Backend returns data to the client**
    - `GET /models` returns a JSON list of metadata objects (id, filename, display_name, tags, etc.).
    - `GET /models/{model_id}` returns metadata for a single model (and ensures file availability).
-   - `GET /models/{model_id}/content` returns the `.obj` file as a binary `FileResponse`, which
-     the desktop client caches locally.
+   - `GET /models/{model_id}/content` returns the model file (e.g. `.obj`, `.glb`) as a binary
+     `FileResponse`, which the desktop client caches locally.
 
 ### Backend Write Flow (Upload New Model)
 
@@ -81,8 +81,8 @@ this backend:
 - `ClientDataManager`:
   - Calls the backend (`/models`, `/models/{id}`, `/models/{id}/content`) to obtain metadata and
     file bytes.
-  - Caches downloaded `.obj` files under its own local `assets/models/` directory so that the
-    PyQt 3D viewer can load them from disk.
+  - Caches downloaded model files (e.g. `.obj`, `.glb`) under its own local `assets/models/`
+    directory so that the PyQt 3D viewer can load them from disk.
   - Clears this cache when the application closes.
 
 In summary:
@@ -97,7 +97,8 @@ Below are the concrete steps that match the current production setup.
 ### Prerequisites
 
 - GCP project: `d-models-480102`
-- GCS bucket: `my-3d-model-bucket` (contains `models/` folder with `.obj` files)
+- GCS bucket: `my-3d-model-bucket` (contains `models/` folder with 3D model files such as `.obj`
+  and `.glb`)
 - Google Cloud SDK (`gcloud`) installed and authenticated
 
 ### 1. Set project and enable services

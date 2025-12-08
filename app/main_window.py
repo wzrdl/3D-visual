@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QTabWidget
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QCloseEvent
 from app.client_data_manager import ClientDataManager
-from app.pages import GalleryPage, AIGenerationPage, ViewerPage
+from app.pages import GalleryPage, AIGenerationPage, ViewerPage, SceneGeneratorPage
 
 # Suppress VTK warnings during cleanup
 os.environ['VTK_LOGGING_LEVEL'] = 'ERROR'
@@ -61,6 +61,12 @@ class MainWindow(QMainWindow):
         self.viewer_page = ViewerPage()
         self.tabs.addTab(self.viewer_page, "3D Viewer")
 
+        # Page 4: Scene Generator Page (Smart Scene Composer)
+        self.scene_generator_page = SceneGeneratorPage(
+            data_manager=self.data_manager,
+        )
+        self.tabs.addTab(self.scene_generator_page, "🎬 Scene Generator")
+
         # TODO: the logic we need to rewrite
         """
         # link buttons to this
@@ -85,6 +91,10 @@ class MainWindow(QMainWindow):
         # Clean up viewer page
         if hasattr(self, 'viewer_page') and self.viewer_page:
             self.viewer_page.cleanup()
+        
+        # Clean up scene generator page
+        if hasattr(self, 'scene_generator_page') and self.scene_generator_page:
+            self.scene_generator_page.cleanup()
 
         # Clear local cache and close the client
         if hasattr(self, 'data_manager') and self.data_manager:
