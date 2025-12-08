@@ -84,4 +84,38 @@ class GCSModelStorage:
         blob.upload_from_filename(str(local_path))
         print(f"Uploaded model to gs://{self.bucket_name}/{blob_path}")
 
+    def list_model_files(self):
+        """
+        List filenames (relative to base_prefix) that exist in the bucket.
+
+        This is used to backfill the local database with objects that already
+        live in GCS. We only return leaf objects; "directories" are skipped.
+        """
+        blobs = self.client.list_blobs(self.bucket_name, prefix=self.base_prefix)
+        filenames = []
+        for blob in blobs:
+            # Skip placeholders / directory entries
+            if blob.name.endswith("/"):
+                continue
+
+            # Strip prefix so the caller receives just the filename
+            if self.base_prefix and blob.name.startswith(self.base_prefix):
+                filename = blob.name[len(self.base_prefix) :]
+            else:
+                filename = blob.name
+
+            # Defensive: skip empty names
+            if not filename:
+                continue
+
+            filenames.append(
+                {
+                    "filename": filename,
+                    # Allow optional custom metadata on the blob; falls back to defaults
+                    "metadata": blob.metadata or {},
+                }
+            )
+
+        return filenames
+
 

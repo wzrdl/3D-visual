@@ -81,9 +81,9 @@ For backend details and data flow, see `server/README.md`.
    ```
 
    - The **Gallery** tab fetches model metadata from the backend (`GET /models`).
-   - When you click a model, the client downloads the `.obj` file via
+   - When you click a model, the client downloads the model file (e.g. `.obj`, `.glb`) via
      `GET /models/{id}/content` and caches it under `assets/models/` before loading it in the
      3D viewer.
-   - When the app closes, the client clears its local cache (cached `.obj` files).
+   - When the app closes, the client clears its local cache (cached model files).
 
 <!-- Backend setup and deployment are documented in server/README.md -->

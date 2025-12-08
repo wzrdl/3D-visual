@@ -1,6 +1,8 @@
 sentence-transformers
 # ---- Core scientific stack ----
+# Keep NumPy in the 1.24–2.1 range; we add a small runtime shim for NumPy 2.x where needed.
 numpy>=1.24,<2.2          #
+torch>=2.6.0,<2.9          # PyTorch (install with https://download.pytorch.org/whl/cpu for CPU-only)
 
 # ---- Qt & 3D visualization stack ----
 PyQt6>=6.6.0,<6.10        
@@ -20,7 +22,7 @@ huggingface_hub>=0.24.0
 # ---- Optional: (if needed)----
 # tqdm>=4.65.0            
 # pydantic>=2.0           
-# rich>=13.0              
+# rich>=13.0
 
 # ---- Cloud storage (for hosting model files on GCP) ----
 google-cloud-storage>=2.18.0,<3.0
