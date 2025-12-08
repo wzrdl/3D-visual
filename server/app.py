@@ -98,7 +98,7 @@ async def upload_model(
         - model_id: unique ID, e.g. "model_123"
         - name: display name
         - tags: JSON string, e.g. '["human","soldier"]'
-        - file: .obj file
+        - file: 3D model file (e.g. `.obj`, `.glb`)
     - Behavior:
         - Save the file to container-local assets/models/<filename>
         - If GCS is configured, automatically upload to the bucket

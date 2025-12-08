@@ -1,16 +1,7 @@
 """
 Page classes for the application
 Each page is a separate class with its own functionality
-We have three pages:
-
-Gallery Page : view the models we saved in the database
-
-AI Generation Page : prompt the AI to generate a model
-
-Viewer Page : view the model in the 3D viewer
 """
-from __future__ import annotations
-
 import os
 import asyncio
 import re
@@ -81,16 +72,10 @@ class GalleryPage(BasePage):
     
     def load_models(self):
         """Grab all models from the database and show them in the list"""
-        try:
-            # Fetch all models via the data manager (ClientDataManager / DataManager)
-            if hasattr(self.data_manager, "get_all_models"):
-                self.all_models = self.data_manager.get_all_models()
-            else:
-                self.all_models = []
-        except Exception as e:
-            print(f"Error loading models for gallery: {e}")
-            self.all_models = []
 
+        # Currently we just get all models from the database and show them in the list
+        # TODO: We may find a better way to load models in the future
+        self.all_models = self.data_manager.get_all_models()
         self.populate_model_list(self.all_models)
     
     def populate_model_list(self, models):
@@ -111,17 +96,11 @@ class GalleryPage(BasePage):
 
             # model thumbnail
             model_name = model['filename']
+            thumbnail_path = ".\\assets\\thumbnails\\" + model_name[:-4] + ".png"
 
-            # Important Path problem!!
-            # The mac and windows path are different, so we need to build the path differently
-            # Build a cross‑platform path to the thumbnails folder at project root
-            project_root = Path(__file__).parent.parent
-            thumbnail_path = project_root / "assets" / "thumbnails" / (model_name[:-4] + ".png")
-            # thumbnail = project_root + "assets" + "thumbnails" + (model_name[:-4] + ".png")
-            # TODO : The thumbnail generation logic need to fix we need to update the thumnbnail
-            # to the cloud storage bucket instead of the local copy
-            
-            if not thumbnail_path.exists():
+            # Ensure we have a local copy of the model before generating thumbnail.
+            # This will download from backend/GCS if needed.
+            if not os.path.exists(thumbnail_path):
                 model_id = model.get("id")
                 model_path_fs: str | None = None
                 try:
@@ -140,8 +119,8 @@ class GalleryPage(BasePage):
                     except Exception as e:
                         print(f"Error generating thumbnail for '{model_name}': {e}")
 
-            if thumbnail_path.exists():
-                thumbnail = QIcon(str(thumbnail_path))
+            if os.path.exists(thumbnail_path):
+                thumbnail = QIcon(thumbnail_path)
                 item.setIcon(thumbnail)
 
             self.model_list.addItem(item)
@@ -157,7 +136,7 @@ class GalleryPage(BasePage):
             self.populate_model_list(filtered_models)
     
     def on_model_selected(self, item: QListWidgetItem):
-        """When the user clicks a model, open it in the 3D viewer"""
+        """When someone clicks a model, open it in the 3D viewer"""
         model = item.data(Qt.ItemDataRole.UserRole)
         if not model:
             return
@@ -174,11 +153,15 @@ class GalleryPage(BasePage):
 
 
 class AIGenerationPage(BasePage):
-    """Page where the user can type a description and the api call will generate a 3D model"""
+    """Page where you can type a description and have AI generate a 3D model"""
     
-    # TODO : The logic we need to rewrite here, once the AI generation is done, we need to automatically turn to the viewer page and load the model
-
     def __init__(self, data_manager: ClientDataManager, gallery_page: GalleryPage | None = None, parent=None):
+        """Create the AI generation page
+
+        Args:
+            data_manager: client-side data manager used to talk to the backend
+            gallery_page: optional reference to gallery page so we can refresh it after upload
+        """
         self.data_manager = data_manager
         self.gallery_page = gallery_page
         self.meshy_client: MeshyClient | None = None
@@ -200,7 +183,7 @@ class AIGenerationPage(BasePage):
         desc_label.setStyleSheet("color: #666; margin-bottom: 20px;")
         layout.addWidget(desc_label)
 
-        # Text input area
+        # Text input area (like ChatGPT)
         self.prompt_input = QTextEdit()
         self.prompt_input.setPlaceholderText(
             "Describe the 3D model you want to generate...\n\n"
@@ -228,6 +211,7 @@ class AIGenerationPage(BasePage):
                 background-color: #3d8b40;
             }
         """)
+        # TODO: Connect to API client in Week 5
         self.generate_button.clicked.connect(self.on_generate_clicked)
         layout.addWidget(self.generate_button)
 
@@ -235,10 +219,12 @@ class AIGenerationPage(BasePage):
         self.status_label = QLabel("")
         self.status_label.setStyleSheet("color: #444; margin-top: 8px;")
         layout.addWidget(self.status_label)
+
+        # Add stretch to push content to top
         layout.addStretch()
     
     def get_prompt(self) -> str:
-        # TODO : We need to check if the prompt is properly formatted
+        """Returns whatever text the user typed in"""
         return self.prompt_input.toPlainText().strip()
 
     def _ensure_meshy_client(self) -> MeshyClient | None:
@@ -256,7 +242,7 @@ class AIGenerationPage(BasePage):
                 "Error: Meshy API is not configured. Please set the MESHY_API_KEY environment variable."
             )
             return None
-    # TODO : This logic need to be rewritten, since we have the datamanager have function called get_next_id
+
     def _next_model_id(self) -> str:
         """Generate next model id, mirroring backend DataManager.get_next_id() behavior."""
         models = self.data_manager.get_all_models()
@@ -279,7 +265,6 @@ class AIGenerationPage(BasePage):
             safe = safe[:40]
         return f"{model_id}_{safe}.obj"
 
-    # TODO : We can add this to backend instead, so the backend will handle the generation and upload
     async def _generate_and_upload(self, prompt: str) -> None:
         """Async workflow: Meshy -> download OBJ -> upload to backend (which mirrors to GCS)."""
         client = self._ensure_meshy_client()
@@ -472,6 +457,7 @@ class ViewerPage(BasePage):
             self.viewer.add_light(self.light)
 
             # Default to viewing the model from the "front"
+            # Assume the model's forward direction is the Z axis (+Z forward) and Y is the vertical up axis
             cx, cy, cz = mesh.center
             distance = max(getattr(mesh, "length", 1.0), 1.0)
             camera_pos = (cx, cy, cz + 1.5 * distance)  # In +Z direction, looking straight at the model
@@ -598,3 +584,296 @@ class ViewerPage(BasePage):
             except Exception:
                 pass
 
+
+class SceneGeneratorPage(BasePage):
+    """
+    Scene generation page - implements the full pipeline "text input → 3D scene".
+
+    Features:
+    1. Accept natural language scene descriptions
+    2. Invoke SceneBrain for semantic parsing
+    3. Invoke LayoutEngine for spatial layout
+    4. Render with SceneViewer
+    5. Provide a debug visualization toggle
+    """
+    
+    def __init__(self, data_manager=None, parent=None):
+        """
+        Initialize the scene generation page.
+
+        Args:
+            data_manager: Data manager for accessing the model library
+            parent: Parent widget
+        """
+        self.data_manager = data_manager
+        self._scene_brain = None
+        self._layout_engine = None
+        self._scene_nodes = []
+        super().__init__(parent)
+    
+    def setup_ui(self):
+        """Build the UI"""
+        from PyQt6.QtWidgets import (
+            QVBoxLayout, QHBoxLayout, QLabel, QTextEdit, 
+            QPushButton, QCheckBox, QSplitter, QFrame, QGroupBox
+        )
+        from PyQt6.QtCore import Qt
+        
+        # Main layout
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
+        
+        # ===== Left control panel =====
+        left_panel = QFrame()
+        left_panel.setMaximumWidth(400)
+        left_panel.setMinimumWidth(300)
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(10, 10, 10, 10)
+        left_layout.setSpacing(15)
+        
+        # Title
+        title_label = QLabel("🎬 Smart Scene Composer")
+        title_label.setStyleSheet("""
+            font-size: 18px; 
+            font-weight: bold; 
+            color: #2196F3;
+            padding: 10px 0;
+        """)
+        left_layout.addWidget(title_label)
+        
+        # Description
+        desc_label = QLabel(
+            "Enter a natural language description and the system will automatically:\n"
+            "• Semantic analysis → understand objects and counts\n"
+            "• Spatial layout → force-directed anti-overlap\n"
+            "• Hierarchy constraints → anchor-based parent-child"
+        )
+        desc_label.setStyleSheet("color: #666; margin-bottom: 10px; line-height: 1.4;")
+        desc_label.setWordWrap(True)
+        left_layout.addWidget(desc_label)
+        
+        # Input area
+        input_group = QGroupBox("Scene description")
+        input_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
+        input_layout = QVBoxLayout(input_group)
+        
+        self.scene_input = QTextEdit()
+        self.scene_input.setPlaceholderText(
+            "Example inputs:\n\n"
+            "• A forest with 5 trees and 3 rocks\n"
+            "• A room with a table and two chairs\n"
+            "• 3 soldiers and a knight standing guard\n"
+            "• A desk with a lamp"
+        )
+        self.scene_input.setMinimumHeight(150)
+        self.scene_input.setStyleSheet("""
+            QTextEdit {
+                border: 1px solid #ccc;
+                border-radius: 6px;
+                padding: 10px;
+                font-size: 13px;
+                background-color: #fafafa;
+            }
+            QTextEdit:focus {
+                border-color: #2196F3;
+                background-color: white;
+            }
+        """)
+        input_layout.addWidget(self.scene_input)
+        left_layout.addWidget(input_group)
+        
+        # Generate button
+        self.generate_btn = QPushButton("🚀 Generate Scene")
+        self.generate_btn.setMinimumHeight(45)
+        self.generate_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-size: 15px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QPushButton:pressed {
+                background-color: #1565C0;
+            }
+            QPushButton:disabled {
+                background-color: #BDBDBD;
+            }
+        """)
+        self.generate_btn.clicked.connect(self.on_generate_clicked)
+        left_layout.addWidget(self.generate_btn)
+        
+        # Debug controls
+        debug_group = QGroupBox("Debug options")
+        debug_group.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+        """)
+        debug_layout = QVBoxLayout(debug_group)
+        
+        self.debug_checkbox = QCheckBox("Show debug info (AABB boxes & parent-child lines)")
+        self.debug_checkbox.setStyleSheet("color: #555; padding: 5px;")
+        self.debug_checkbox.stateChanged.connect(self.on_debug_toggled)
+        debug_layout.addWidget(self.debug_checkbox)
+        
+        self.screenshot_btn = QPushButton("📷 Save Screenshot")
+        self.screenshot_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #43A047;
+            }
+        """)
+        self.screenshot_btn.clicked.connect(self.on_screenshot_clicked)
+        debug_layout.addWidget(self.screenshot_btn)
+        
+        left_layout.addWidget(debug_group)
+        
+        # Status label
+        self.status_label = QLabel("")
+        self.status_label.setStyleSheet("""
+            color: #666;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 6px;
+        """)
+        self.status_label.setWordWrap(True)
+        left_layout.addWidget(self.status_label)
+        
+        # Spacer
+        left_layout.addStretch()
+        
+        # ===== Right 3D view =====
+        right_panel = QFrame()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # 3D scene viewer (with data_manager for remote fetch)
+        from app.scene_viewer import SceneViewer
+        self.scene_viewer = SceneViewer(self, data_manager=self.data_manager)
+        self.scene_viewer.set_status_callback(self._set_status_text)
+        self.scene_viewer.setMinimumSize(600, 500)
+        right_layout.addWidget(self.scene_viewer)
+        
+        # Assemble main layout
+        main_layout.addWidget(left_panel)
+        main_layout.addWidget(right_panel, stretch=1)
+    
+    def _ensure_engines(self):
+        """Ensure SceneBrain and LayoutEngine are initialized"""
+        # Scene generation logic lives in SceneViewer now; nothing to init here
+        pass
+    
+    def on_generate_clicked(self):
+        """
+        Handler for the generate button click.
+
+        Steps:
+        1. Read user input
+        2. SceneBrain semantic analysis
+        3. LayoutEngine spatial layout
+        4. SceneViewer rendering
+        """
+        text = self.scene_input.toPlainText().strip()
+        if not text:
+            self._set_status_text("⚠️ Please enter a scene description")
+            return
+        
+        # Disable button
+        self.generate_btn.setEnabled(False)
+        self.generate_btn.setText("⏳ Generating...")
+        self.status_label.setText("🔍 Analyzing scene description...")
+        
+        try:
+            # Delegate generation and rendering to SceneViewer
+            self.scene_viewer.generate_scene(
+                text=text,
+                debug_enabled=self.debug_checkbox.isChecked()
+            )
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self._set_status_text(f"❌ Generation failed: {str(e)}")
+        finally:
+            self.generate_btn.setEnabled(True)
+            self.generate_btn.setText("🚀 Generate Scene")
+    
+    def on_debug_toggled(self, state):
+        """Handle debug checkbox state change"""
+        from PyQt6.QtCore import Qt
+        self.scene_viewer.debug_mode = (state == Qt.CheckState.Checked.value)
+        
+        # If a scene already exists, let SceneViewer re-render
+        try:
+            if getattr(self.scene_viewer, "_scene_nodes", []):
+                models_dir = self.scene_viewer._get_models_dir(
+                    use_testmodel=self.scene_viewer._is_forest_preset(self.scene_input.toPlainText())
+                )
+                debug_data = (
+                    self.scene_viewer._layout_engine.debug_data
+                    if self.scene_viewer.debug_mode
+                    else None
+                )
+                self.scene_viewer.render_scene(
+                    self.scene_viewer._scene_nodes,
+                    models_dir,
+                    debug_data
+                )
+        except Exception:
+            pass
+    
+    def on_screenshot_clicked(self):
+        """Handle screenshot button click"""
+        try:
+            filepath = self.scene_viewer.take_scene_screenshot()
+            self.status_label.setText(f"📸 Screenshot saved: {filepath}")
+        except Exception as e:
+            self.status_label.setText(f"❌ Screenshot failed: {str(e)}")
+    
+    def _set_status_text(self, text: str):
+        """Unified status update helper"""
+        self.status_label.setText(text)
+    
+    def cleanup(self):
+        """Clean up resources"""
+        if hasattr(self, 'scene_viewer') and self.scene_viewer:
+            try:
+                self.scene_viewer.clear_scene()
+                if hasattr(self.scene_viewer, 'render_window') and self.scene_viewer.render_window:
+                    try:
+                        self.scene_viewer.render_window.Finalize()
+                    except:
+                        pass
+                self.scene_viewer.close()
+            except Exception:
+                pass

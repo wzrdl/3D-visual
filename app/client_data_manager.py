@@ -3,7 +3,8 @@ Client-side DataManager: acts as a thin cache in front of the FastAPI backend.
 
 Responsibilities:
 - Fetch model metadata and files from the FastAPI backend over HTTP
-- Temporarily cache downloaded .obj files under the local `assets/models/` directory
+- Temporarily cache downloaded 3D model files (e.g. `.obj`, `.glb`) under the local
+  `assets/models/` directory
 - Provide a DataManager-like interface for the UI (get_all_models / search_models / get_model_path)
 - Allow the application to clear the local cache on exit
 """
@@ -115,11 +116,12 @@ class ClientDataManager:
         """Delete all cached model files from assets/models."""
         if not self.models_dir.exists():
             return
-        for path in self.models_dir.glob("*.obj"):
-            try:
-                path.unlink()
-            except OSError:
-                pass
+        for pattern in ("*.obj", "*.glb"):
+            for path in self.models_dir.glob(pattern):
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
 
     def close(self) -> None:
         """Cleanup resources."""
