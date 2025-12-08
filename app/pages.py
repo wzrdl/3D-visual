@@ -478,7 +478,7 @@ class ViewerPage(BasePage):
         """ takes the model path and gets the [name].obj from it """
 
         if self.model_path != None:
-            file_name = self.model_path.split('\\')[-1]
+            file_name = self.model_path.split('/')[-1]
             return file_name
         else:
             return None

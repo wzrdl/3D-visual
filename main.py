@@ -1,6 +1,7 @@
 """
 main entry point
 """
+import torch # temporary solution to get the viewer to open
 import sys
 from PyQt6.QtWidgets import QApplication
 from app.main_window import MainWindow
