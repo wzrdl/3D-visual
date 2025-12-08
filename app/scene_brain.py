@@ -408,19 +408,26 @@ class SceneBrain:
         return f"Scene contains: {', '.join(items)}"
 
 import torch
-from typing import List # in order to make sure that the keywords input is a list
+from typing import List  # in order to make sure that the keywords input is a list
 
 from sentence_transformers import util
 from app.client_data_manager import ClientDataManager
 
-class SceneBrain():
+
+class SceneBrainLegacy:
+    """
+    Legacy keyword-based SceneBrain (kept for reference).
+
+    Note: The active SceneBrain is defined above with data_manager support.
+    """
+
     def __init__(self):
         self.keywords = []
         self.top_matches = []
         self.stopwords = set()
 
         # as these are used often
-        self.cdm = ClientDataManager() # cdm for ease
+        self.cdm = ClientDataManager()  # cdm for ease
         self.embedder = self.cdm.miniM_model
 
     def stop_words_set(self):
@@ -469,7 +476,7 @@ class SceneBrain():
         return clean_list
 
     def keywords_to_vector(self, user_input: str):
-        self. keywords = self.extract_keywords(user_input)
+        self.keywords = self.extract_keywords(user_input)
 
         queries = " ".join(self.keywords)
         query_embedding = self.embedder.encode_query(queries)

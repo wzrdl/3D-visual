@@ -110,7 +110,7 @@ def test_vector_database():
     assert name == "tree"
     assert best_score > 0.4
 
-from app.scene_brain import SceneBrain
+from app.scene_brain import SceneBrainLegacy
 """
 Pyest #4 
 Connecting user input to temporary data 
@@ -139,7 +139,7 @@ def test_user_input():
     cdm.name_order, cdm.vector_database = cdm.concatenate_name_tags(temp_data_path)
     #embedder = cdm.miniM_model
 
-    sb = SceneBrain()
+    sb = SceneBrainLegacy()
     sb.cdm = cdm
     user_input = "I want a green forest"
 
