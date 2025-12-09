@@ -5,10 +5,14 @@ Uses SQLite for persistent storage of 3D model metadata
 
 import json
 import os
+import re
 import sqlite3
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from datetime import datetime
+
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
 
 # for thumbnails
 import pyvista as pv
@@ -53,6 +57,15 @@ class DataManager:
         # Initialize database connection, we only need the database file path
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row  # Enable column access by name
+
+        # Embedding-related members (semantic only, in-memory)
+        self._stopwords: List[str] = self._load_stopwords()
+        self._embedding_ids: List[str] = []
+        self._model_lookup: Dict[str, Dict] = {}
+        self._encoder = None
+        self._semantic_embeddings = None  # ndarray
+        self._semantic_ids: List[str] = []
+        self._semantic_model_name = os.getenv("SEMANTIC_MODEL_NAME", "paraphrase-MiniLM-L3-v2")
         
         # Run migrations
         self._run_migrations()
@@ -63,6 +76,19 @@ class DataManager:
 
         #cleanup
         self.remove_nonexistent_models()
+        # Build vector index for semantic search (sentence-transformers)
+        self._init_vector_index()
+
+    def _load_stopwords(self) -> List[str]:
+        """Load optional stopwords list from assets/stopwords.txt"""
+        stopwords_path = self.assets_dir / "stopwords.txt"
+        if not stopwords_path.exists():
+            return []
+        try:
+            with open(stopwords_path, "r", encoding="utf-8") as f:
+                return [line.strip() for line in f if line.strip()]
+        except Exception:
+            return []
     def _init_gcs_storage(self) -> None:
         """
         Initialize optional Google Cloud Storage model backend.
@@ -92,6 +118,179 @@ class DataManager:
             # Fail gracefully and fall back to local-only mode
             print(f"Error initializing GCS model storage: {e}")
             self.gcs_storage = None
+
+    # ---------------------- Vector index helpers ----------------------
+    def _infer_placement_type(self, display_name: str, tags: List[str]) -> str:
+        """Heuristically infer placement type from name/tags"""
+        text = f"{display_name} {' '.join(tags)}".lower()
+        mapping = {
+            "floating": ["cloud", "bird", "plane", "helicopter", "balloon", "star"],
+            "character": ["person", "human", "man", "woman", "child", "soldier", "knight", "ninja", "zombie", "elf", "wizard", "goblin", "cowboy", "doctor", "pirate", "viking", "chef"],
+            "prop": ["cup", "book", "pen", "plate", "vase", "clock", "phone", "pillow", "blanket", "lamp"],
+            "ground": ["tree", "rock", "stone", "car", "chair", "table", "desk", "building", "house", "fence", "wall", "bench"],
+        }
+        for ptype, keywords in mapping.items():
+            if any(k in text for k in keywords):
+                return ptype
+        return "ground"
+
+    def _prepare_model_record(self, row: sqlite3.Row) -> Dict:
+        """Convert DB row to dict and enrich placement tags"""
+        tags = json.loads(row["tags"])
+        if not isinstance(tags, list):
+            tags = []
+        placement_type = self._infer_placement_type(row["display_name"], tags)
+        # Inject placement_type tag for downstream layout rules
+        if placement_type not in tags:
+            tags.append(placement_type)
+        record = {
+            "id": row["id"],
+            "filename": row["filename"],
+            "name": row["display_name"],  # compatibility
+            "display_name": row["display_name"],
+            "tags": tags,
+            "placement_type": placement_type,
+            "created_at": row["created_at"],
+            "modified_at": row["modified_at"],
+        }
+        return record
+
+    def _build_vector_corpus(self) -> Tuple[List[str], List[str]]:
+        """
+        Build corpus strings and id list for semantic embedding.
+        Uses normalized display_name only (no tags).
+        """
+        models = self.get_all_models()
+        corpus: List[str] = []
+        ids: List[str] = []
+        self._model_lookup = {m["id"]: m for m in models}
+
+        for model in models:
+            name_raw = model.get("display_name", "") or model.get("name", "")
+            name_norm = self._normalize_text(name_raw)
+            if name_norm:
+                corpus.append(name_norm)
+                ids.append(model["id"])
+        return corpus, ids
+
+    def _init_vector_index(self):
+        """
+        Create in-memory semantic vector index for search.
+        """
+        corpus, ids = self._build_vector_corpus()
+        if not corpus:
+            return
+        self._embedding_ids = ids
+        # Build semantic embeddings (best-effort)
+        self._init_semantic_embeddings()
+
+    def _init_semantic_embeddings(self):
+        """Build lightweight sentence embeddings if model is available"""
+        try:
+            from sentence_transformers import SentenceTransformer
+            model = SentenceTransformer(self._semantic_model_name)
+            texts = [self._normalize_text(self._model_lookup[mid]["display_name"]) for mid in self._embedding_ids]
+            self._semantic_embeddings = np.array(model.encode(texts, normalize_embeddings=True))
+            self._semantic_ids = list(self._embedding_ids)
+            self._encoder = model
+        except Exception as e:
+            # Fail silently if sentence-transformers is unavailable
+            self._encoder = None
+            self._semantic_embeddings = None
+    
+    def _normalize_text(self, text: str) -> str:
+        """
+        Lowercase and replace any non-alphanumeric (including underscores) with space,
+        so tokens like 'car' survive from names such as 'model_064_a_ferrari_sf90_car'.
+        """
+        text = text.lower()
+        text = re.sub(r"[^a-zA-Z0-9]+", " ", text)
+        return " ".join(text.split())
+
+    def semantic_search(self, query: str, top_k: int = 5) -> List[Dict]:
+        """
+        Run lightweight semantic search using sentence-transformers cosine similarity.
+
+        Returns a list of dicts: {"model": model_dict, "score": float}
+        """
+        if not query or not query.strip():
+            return []
+        normalized_query = self._normalize_text(query)
+        if not normalized_query:
+            return []
+
+        results: List[Dict] = []
+
+        # Semantic encoder only
+        if self._encoder is not None and self._semantic_embeddings is not None:
+            try:
+                variants = self._synonym_expand(normalized_query)
+                q_emb = self._encoder.encode(variants, normalize_embeddings=True)
+                scores = None
+                for emb in q_emb:
+                    s = cosine_similarity([emb], self._semantic_embeddings).flatten()
+                    scores = s if scores is None else np.maximum(scores, s)
+                if scores is None:
+                    return []
+                ranked_indices = np.argsort(scores)[::-1]
+                for idx in ranked_indices[:top_k]:
+                    model_id = self._semantic_ids[idx]
+                    model = self._model_lookup.get(model_id) or self.get_model_by_id(model_id)
+                    if not model:
+                        continue
+                    results.append({"model": model, "score": float(scores[idx])})
+            except Exception:
+                pass
+
+        return results
+
+    def _synonym_expand(self, query: str) -> List[str]:
+        """Expand query with lightweight synonyms for better recall."""
+        base = query.strip().lower()
+        synonyms_map = {
+            "zoo": ["animal", "wildlife", "lion", "tiger", "bear", "snake", "frog", "bird"],
+            "animal": ["wildlife", "creature", "beast"],
+            "car": ["vehicle", "auto", "automobile", "racing car"],
+            "house": ["home", "building"],
+        }
+        extras = synonyms_map.get(base, [])
+        return [base] + extras if extras else [base]
+
+    def get_model_embeddings(self, model_ids: List[str]) -> Dict[str, np.ndarray]:
+        """
+        Return normalized semantic embeddings for given model ids (best-effort).
+
+        Used by layout stage to compute pairwise similarity without tags.
+        """
+        try:
+            self._init_vector_index()
+        except Exception:
+            return {}
+
+        if getattr(self, "_semantic_embeddings", None) is None or getattr(self, "_semantic_ids", None) is None:
+            return {}
+
+        id_to_idx = {mid: idx for idx, mid in enumerate(self._semantic_ids)}
+        vectors: Dict[str, np.ndarray] = {}
+        for mid in model_ids:
+            idx = id_to_idx.get(mid)
+            if idx is None:
+                continue
+            vec = self._semantic_embeddings[idx]
+            # Ensure normalized; semantic embeddings are already normalized, but guard anyway.
+            norm = np.linalg.norm(vec)
+            if norm > 0:
+                vectors[mid] = vec / norm
+        return vectors
+
+    def get_model_by_id(self, model_id: str) -> Optional[Dict]:
+        """Fetch a single model by id"""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM models WHERE id = ?", (model_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return self._prepare_model_record(row)
     
     def _run_migrations(self):
         """create tables and indexes if they don't exist"""
@@ -217,7 +416,19 @@ class DataManager:
         cursor.execute("SELECT * FROM models ORDER BY created_at DESC")
         rows = cursor.fetchall()
         
-        return [self._row_to_dict(row) for row in rows]
+        models = [self._prepare_model_record(row) for row in rows]
+        # Reset semantic caches to ensure newly added models are included
+        self._semantic_embeddings = None
+        self._encoder = None
+        self._semantic_ids = []
+        self._embedding_ids = []
+        self._model_lookup = {m["id"]: m for m in models}
+        # Best-effort rebuild (ignore failures if encoder missing)
+        try:
+            self._init_vector_index()
+        except Exception:
+            pass
+        return models
     
     def search_models(self, query: str) -> List[Dict]:
         """search models by display_name or tags (type-ahead search)
@@ -242,10 +453,11 @@ class DataManager:
         results = []
         for row in rows:
             # Parse tags JSON and check if query matches any tag
-            tags = json.loads(row['tags'])
-            if (query.lower() in row['display_name'].lower() or
+            model = self._prepare_model_record(row)
+            tags = model.get("tags", [])
+            if (query.lower() in model['display_name'].lower() or
                 any(query.lower() in tag.lower() for tag in tags)):
-                results.append(self._row_to_dict(row))
+                results.append(model)
         
         return results
     
@@ -470,16 +682,8 @@ class DataManager:
         return imported_count
     
     def _row_to_dict(self, row: sqlite3.Row) -> Dict:
-        """We want to convert database row to dictionary for easier access"""
-        return {
-            'id': row['id'],
-            'filename': row['filename'],
-            'name': row['display_name'],  # Keep 'name' key for compatibility
-            'display_name': row['display_name'],
-            'tags': json.loads(row['tags']),
-            'created_at': row['created_at'],
-            'modified_at': row['modified_at'],
-        }
+        """Backward-compatible wrapper"""
+        return self._prepare_model_record(row)
 
     def close(self):
         """close database connection"""

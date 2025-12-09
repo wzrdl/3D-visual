@@ -2,8 +2,8 @@
 SceneBrain - Semantic Analysis Module
 
 Handles NLP parsing and vector retrieval to map unstructured natural language
-to the local asset library.
-Tech: SBERT (all-MiniLM-L6-v2) + cosine similarity
+to the local asset library using sentence-transformers + cosine similarity
+for semantic matching.
 
 Input: text string
 Output: target model IDs and quantity info
@@ -82,38 +82,24 @@ class SceneBrain:
         """
         self.data_manager = data_manager
         self.similarity_threshold = similarity_threshold
+        # Lowered from 0.35 to 0.25 to include more relevant items (like trees/spheres)
+        self.fallback_threshold = 0.25
+        self.top_k = 20  # number of candidates to consider per keyword
+        self._fallback_model_id = "cube"
         self._model_cache: List[Dict] = []
         self._embeddings_cache: Dict[str, np.ndarray] = {}
-        
-        # NLP模型 (延迟加载)
-        self._encoder = None
-        self._nlp_available = False
-        
-        # 尝试初始化NLP组件
-        self._init_nlp()
-        
-    def _init_nlp(self):
-        """
-        Initialize NLP components.
-
-        TODO: Implement SBERT semantic encoder.
-        Current version uses keyword matching as a placeholder.
-        """
-        try:
-            # TODO: Enable after adding sentence-transformers dependency
-            # from sentence_transformers import SentenceTransformer
-            # self._encoder = SentenceTransformer('all-MiniLM-L6-v2')
-            # self._nlp_available = True
-            self._nlp_available = False
-            print("[SceneBrain] NLP module placeholder - using keyword matching")
-        except ImportError:
-            self._nlp_available = False
-            print("[SceneBrain] sentence-transformers not available, using keyword matching")
     
-    def _load_model_cache(self):
-        """Load model cache from the data manager"""
-        if self.data_manager and not self._model_cache:
-            self._model_cache = self.data_manager.get_all_models()
+    def _load_model_cache(self, force_refresh: bool = False):
+        """
+        Load/refresh model cache from the data manager.
+
+        force_refresh=True ensures newly added models (e.g., AI generation) are visible.
+        """
+        if self.data_manager and (force_refresh or not self._model_cache):
+            try:
+                self._model_cache = self.data_manager.get_all_models()
+            except Exception as e:
+                print(f"[SceneBrain] Failed to load model cache: {e}")
     
     def parse_scene_description(self, text: str) -> List[SceneObject]:
         """
@@ -135,7 +121,7 @@ class SceneBrain:
             return []
         
         # Load model cache
-        self._load_model_cache()
+        self._load_model_cache(force_refresh=True)
         
         # 1. Text preprocessing
         text_lower = text.lower().strip()
@@ -148,25 +134,28 @@ class SceneBrain:
         parent_map = {}  # Track parent objects for relationship building
         
         for keyword, count in extracted_items:
-            matched_model = self._match_model(keyword)
+            matched_list = self._match_models(keyword)
             
-            if matched_model:
-                placement_type = self._get_placement_type(keyword)
+            for idx, (matched_model, matched_score) in enumerate(matched_list):
+                tags = matched_model.get('tags', [])
+                if isinstance(tags, str):
+                    tags = [tags]
+                placement_type = matched_model.get('placement_type') or self._get_placement_type(keyword)
                 is_parent = self._is_parent_object(keyword)
                 
                 scene_obj = SceneObject(
                     model_id=matched_model['id'],
                     display_name=matched_model.get('display_name', matched_model.get('name', keyword)),
                     filename=matched_model['filename'],
-                    count=count,
-                    tags=matched_model.get('tags', []),
+                    count=count if idx == 0 else 1,  # preserve user count only for top hit
+                    tags=tags,
                     placement_type=placement_type,
                     is_parent=is_parent,
                     parent_id=None
                 )
                 
-                # 记录父物体
-                if is_parent:
+                # 记录父物体（仅首个匹配用于父映射）
+                if is_parent and idx == 0:
                     parent_map[keyword] = scene_obj.model_id
                     
                 scene_objects.append(scene_obj)
@@ -228,98 +217,104 @@ class SceneBrain:
                 if word_base in common_objects:
                     if not any(word_base == r[0] for r in results):
                         results.append((word_base, 1))
+
+        # If still nothing, fall back to treating any token as a candidate keyword
+        if not results:
+            fallback_words = re.findall(r'\b\w+\b', text)
+            seen = set()
+            for w in fallback_words:
+                w_base = w.rstrip('s')
+                if w_base and w_base not in seen:
+                    results.append((w_base, 1))
+                    seen.add(w_base)
         
         return results
     
-    def _match_model(self, keyword: str) -> Optional[Dict]:
+    def _match_models(self, keyword: str) -> List[Tuple[Dict, float]]:
         """
-        Match a model in the library by keyword.
-
-        Current implementation: simple keyword matching.
-        TODO: implement SBERT-based semantic vector matching.
-
-        Matching algorithm:
-        1. Exact match on filename or display name
-        2. Tag match
-        3. Partial match
-        4. (TODO) Semantic cosine similarity
-
-        Args:
-            keyword: Object keyword
-
-        Returns:
-            Matched model dict or None
+        Match a model in the library by combining semantic similarity with
+        keyword fallbacks. Returns a ranked list of candidates.
         """
         if not self._model_cache:
-            return None
-        
+            return []
+
+        candidates: List[Tuple[Dict, float]] = []
+
+        semantic_list = self._semantic_match(keyword)
+        best_score = semantic_list[0][1] if semantic_list else 0.0
+
+        # If semantic score is below threshold, try deterministic keyword matching
+        keyword_model = self._keyword_match(keyword)
+        if keyword_model and best_score < self.similarity_threshold:
+            candidates.append((keyword_model, 1.0))
+
+        # Accept semantic matches above fallback threshold
+        for model, score in semantic_list:
+            if score >= self.fallback_threshold:
+                candidates.append((model, score))
+
+        # If nothing yet, but keyword match exists, use it
+        if not candidates and keyword_model:
+            candidates.append((keyword_model, 1.0))
+
+        # Final safety fallback
+        if not candidates:
+            fallback = self._fallback_model()
+            if fallback:
+                candidates.append((fallback, 0.0))
+
+        # Limit to top_k
+        return candidates[: self.top_k]
+
+    def _keyword_match(self, keyword: str) -> Optional[Dict]:
+        """Simple keyword-based matching used as a deterministic fallback."""
         keyword_lower = keyword.lower()
-        
-        # 1. 精确匹配显示名或文件名
+
+        # Exact match on display_name / filename
         for model in self._model_cache:
             display_name = model.get('display_name', '').lower()
             filename = model.get('filename', '').lower()
-            
             if keyword_lower == display_name or keyword_lower in filename:
                 return model
-        
-        # 2. 标签匹配
+
+        # Tag match
         for model in self._model_cache:
             tags = model.get('tags', [])
             if isinstance(tags, str):
                 tags = [tags]
-            
             for tag in tags:
                 if keyword_lower == tag.lower() or keyword_lower in tag.lower():
                     return model
-        
-        # 3. 部分匹配（显示名或文件名包含关键词）
+
+        # Partial match
         for model in self._model_cache:
             display_name = model.get('display_name', '').lower()
             filename = model.get('filename', '').lower()
-            
             if keyword_lower in display_name or keyword_lower in filename:
                 return model
-        
-        # 4. TODO: 语义向量匹配
-        # if self._nlp_available and self._encoder:
-        #     return self._semantic_match(keyword)
-        
-        return None
-    
-    def _semantic_match(self, keyword: str) -> Optional[Dict]:
-        """
-        Semantic vector-based model matching.
 
-        TODO: Implement:
-        1. Get semantic vector for keyword: V_query = Encoder(keyword)
-        2. Compute cosine similarity with all models
-        3. Return the highest-scoring model above threshold
-
-        Cosine similarity:
-        S = (V_query · V_model) / (||V_query|| × ||V_model||)
-        """
-        # 占位实现
-        # TODO: 实现SBERT语义匹配
-        # query_embedding = self._encoder.encode(keyword)
-        # best_match = None
-        # best_score = 0
-        # 
-        # for model in self._model_cache:
-        #     model_text = f"{model.get('display_name', '')} {' '.join(model.get('tags', []))}"
-        #     model_embedding = self._get_or_compute_embedding(model['id'], model_text)
-        #     
-        #     # 余弦相似度
-        #     score = np.dot(query_embedding, model_embedding) / (
-        #         np.linalg.norm(query_embedding) * np.linalg.norm(model_embedding)
-        #     )
-        #     
-        #     if score > best_score and score >= self.similarity_threshold:
-        #         best_score = score
-        #         best_match = model
-        # 
-        # return best_match
         return None
+
+    def _semantic_match(self, keyword: str) -> List[Tuple[Dict, float]]:
+        """Semantic similarity search against DataManager embedding index."""
+        if not self.data_manager:
+            return []
+        results = self.data_manager.semantic_search(keyword, top_k=self.top_k)
+        if not results:
+            return []
+        return [(item["model"], item["score"]) for item in results]
+
+    def _fallback_model(self) -> Optional[Dict]:
+        """Return a safe placeholder model to avoid crashes."""
+        if not self._model_cache:
+            return None
+
+        # Prefer cube / placeholder assets
+        for model in self._model_cache:
+            name = model.get("display_name", "").lower()
+            if self._fallback_model_id in name or "placeholder" in name:
+                return model
+        return self._model_cache[0] if self._model_cache else None
     
     def _get_placement_type(self, keyword: str) -> str:
         """
@@ -407,107 +402,3 @@ class SceneBrain:
         
         return f"Scene contains: {', '.join(items)}"
 
-import torch
-from typing import List  # in order to make sure that the keywords input is a list
-
-from sentence_transformers import util
-from app.client_data_manager import ClientDataManager
-
-
-class SceneBrainLegacy:
-    """
-    Legacy keyword-based SceneBrain (kept for reference).
-
-    Note: The active SceneBrain is defined above with data_manager support.
-    """
-
-    def __init__(self):
-        self.keywords = []
-        self.top_matches = []
-        self.stopwords = set()
-
-        # as these are used often
-        self.cdm = ClientDataManager()  # cdm for ease
-        self.embedder = self.cdm.miniM_model
-
-    def stop_words_set(self):
-
-        file = "assets/stopwords.txt"
-        myFile = open(file, "r")
-        for line in myFile:
-            self.stopwords.add(line.strip())
-        myFile.close()
-
-        return self.stopwords
-
-    # takes user input and finds keywords from it
-    def extract_keywords(self, user_input: str):
-        """
-        From user input, separates keywords that we can later use
-        """
-
-        user_input = user_input.lower()
-        user_input = user_input.strip()
-        split_input = user_input.split(" ") # splits based on a space
-
-        # just in case there are irregular spaces
-        for i in range(len(split_input)-1):
-            split_input[i] = split_input[i].strip()
-
-        clean_list = []
-
-        """ 
-        OPTIONAL
-        sentence transformer SHOULD be able to tell articles apart
-        If we wanted a list that is usable in other contexts, though, this could be userufl
-        """
-        remove_stopwords = True  # adjust this for what we want
-
-        if remove_stopwords == True:
-            self.stopwords = self.stop_words_set()
-
-            for i in range(len(split_input) - 1):
-                if split_input[i] not in self.stop_words_set():
-                    clean_list.append(split_input[i])
-        else:
-            for i in range(len(split_input) - 1):
-                clean_list.append(split_input[i])
-
-        return clean_list
-
-    def keywords_to_vector(self, user_input: str):
-        self.keywords = self.extract_keywords(user_input)
-
-        queries = " ".join(self.keywords)
-        query_embedding = self.embedder.encode_query(queries)
-
-        # seeing the scores or calculations for the test
-        similarity_score = util.cos_sim(query_embedding, self.cdm.vector_database)
-        # makes it a 2D grid with the first [0] being the query and the second holding the
-        #       different temp_data lines
-
-        all_names = self.cdm.name_order
-        k = len(all_names)
-
-        if k > 0:
-            scores, indices = torch.topk(similarity_score[0], k=k)
-        else:
-            return ["placeholder"]
-
-        """Edit this as we see fit"""
-        match_accuracy = 0.4
-        # 0.5 was too high for the pytest
-
-        # checking which scores are more than 0.5
-        for score, index in zip(scores, indices):
-            if score > match_accuracy:
-                match_name = self.cdm.name_order[index]
-                self.top_matches.append(match_name)
-                print(f"MATCH: {match_name} has a score of ({score:4f})")
-
-        # if there is no good match -- prevents error
-        if len(self.top_matches) == 0:
-            print("No matches found, placeholder set as match.")
-            self.top_matches.append("placeholder")
-
-        return self.top_matches

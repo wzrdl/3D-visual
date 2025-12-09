@@ -77,15 +77,15 @@ class LayoutEngine:
     """
     
     # Force-directed algorithm parameters
-    DEFAULT_REPULSION_K = 100.0      # Repulsion coefficient (lower to avoid blow-ups)
-    DEFAULT_ATTRACTION_K = 0.5       # Attraction coefficient (higher to pull together)
+    DEFAULT_REPULSION_K = 80.0       # Repulsion coefficient (lower to avoid blow-ups)
+    DEFAULT_ATTRACTION_K = 1.2       # Attraction coefficient (higher to pull together)
     DEFAULT_DAMPING = 0.9            # Damping factor (higher reduces oscillation)
     DEFAULT_ITERATIONS = 50          # Iteration count (higher = more evolution steps)
     DEFAULT_TIME_STEP = 0.05         # Time step (smaller = more stable)
     DEFAULT_MIN_DISTANCE = 0.5       # Minimum distance to avoid divide-by-zero
     
     # Layout space parameters
-    DEFAULT_LAYOUT_RADIUS = 15.0     # Initial layout radius
+    DEFAULT_LAYOUT_RADIUS = 8.0      # Initial layout radius
     DEFAULT_SCENE_BOUNDS = 30.0      # Scene boundary
     
     # Anchor parameters
@@ -93,6 +93,10 @@ class LayoutEngine:
     
     # Default bounding box size (used when real size is unavailable)
     DEFAULT_BBOX_SIZE = np.array([1.0, 1.0, 1.0])
+
+    # Semantic clustering parameters (cosine similarity on embeddings)
+    DEFAULT_SEMANTIC_ATTRACTION_STRENGTH = 8.0
+    DEFAULT_SEMANTIC_ATTRACTION_THRESHOLD = 0.45
 
     # ------------------ Facing helpers ------------------
     def _calculate_facing_rotation(self, position: np.ndarray, display_name: str, method: str = "auto") -> float:
@@ -132,6 +136,8 @@ class LayoutEngine:
         attraction_k: float = DEFAULT_ATTRACTION_K,
         iterations: int = DEFAULT_ITERATIONS,
         layout_radius: float = DEFAULT_LAYOUT_RADIUS,
+        semantic_attraction_strength: float = DEFAULT_SEMANTIC_ATTRACTION_STRENGTH,
+        semantic_attraction_threshold: float = DEFAULT_SEMANTIC_ATTRACTION_THRESHOLD,
     ):
         """
         Initialize the layout engine.
@@ -147,6 +153,10 @@ class LayoutEngine:
         self.iterations = iterations
         self.layout_radius = layout_radius
         self._instance_counter = 0
+
+        # Semantic attraction controls
+        self.semantic_attraction_strength = semantic_attraction_strength
+        self.semantic_attraction_threshold = semantic_attraction_threshold
         
         # Storage for debug visualization artifacts
         self.debug_data: Dict[str, Any] = {
@@ -159,7 +169,8 @@ class LayoutEngine:
     def layout_scene(
         self, 
         scene_objects: List[SceneObject],
-        model_dimensions: Optional[Dict[str, np.ndarray]] = None
+        model_dimensions: Optional[Dict[str, np.ndarray]] = None,
+        semantic_vectors: Optional[Dict[str, np.ndarray]] = None,
     ) -> List[SceneNode]:
         """
         Build scene layout.
@@ -169,6 +180,7 @@ class LayoutEngine:
         Args:
             scene_objects: Scene objects (from SceneBrain)
             model_dimensions: Mapping from model_id to bbox size {model_id: [L, W, H]}
+            semantic_vectors: Optional mapping {model_id: embedding}; used for clustering
 
         Returns:
             List of SceneNode (scene graph roots)
@@ -187,7 +199,7 @@ class LayoutEngine:
         child_objects = [obj for obj in expanded_objects if obj.parent_id is not None]
         
         # 3. Run force-directed layout for parents/independent objects
-        parent_nodes = self._force_directed_layout(parent_objects, model_dimensions)
+        parent_nodes = self._force_directed_layout(parent_objects, model_dimensions, semantic_vectors)
         
         # 4. Apply anchor constraints for children and collect orphans
         orphan_nodes = self._apply_anchor_constraints(parent_nodes, child_objects, model_dimensions)
@@ -228,7 +240,8 @@ class LayoutEngine:
     def _force_directed_layout(
         self,
         objects: List[SceneObject],
-        model_dimensions: Optional[Dict[str, np.ndarray]] = None
+        model_dimensions: Optional[Dict[str, np.ndarray]] = None,
+        semantic_vectors: Optional[Dict[str, np.ndarray]] = None,
     ) -> List[SceneNode]:
         """
         Force-directed global layout.
@@ -256,28 +269,78 @@ class LayoutEngine:
         
         n = len(objects)
         model_dimensions = model_dimensions or {}
+
+        # Normalize semantic vectors once for pairwise cosine similarity
+        normalized_vectors: Optional[Dict[str, np.ndarray]] = None
+        if semantic_vectors:
+            normalized_vectors = {}
+            for mid, vec in semantic_vectors.items():
+                arr = np.array(vec, dtype=float)
+                norm = np.linalg.norm(arr)
+                if norm > 0:
+                    normalized_vectors[mid] = arr / norm
         
         # initialize nodes
         nodes: List[SceneNode] = []
         positions = np.zeros((n, 3))
         velocities = np.zeros((n, 3))
         radii = np.zeros(n)  # Effective radii for collision detection
-        
+
+        # === 定义聚落中心 (Cluster Centers) ===
+        # 这一步是为了让同类物体一开始就聚在一起，而不是散落在地图各处
+        # key: model_id, value: (angle_base, radius_base)
+        cluster_bases = {}
+
         for i, obj in enumerate(objects):
             # Get bounding box size
             bbox = model_dimensions.get(obj.model_id, self.DEFAULT_BBOX_SIZE.copy())
             if isinstance(bbox, list):
                 bbox = np.array(bbox)
-            
-            # Initialize position: use polar random distribution to avoid singularities
-            angle = random.uniform(0, 2 * math.pi)
-            radius = random.uniform(2.0, 8.0)  # Initial radius range for dispersion
+
+            # === 智能分区初始化 ===
+            name = obj.display_name.lower()
+
+            # 1. 识别物体角色
+            # Hero: 核心物体 (房子, 桌子, 篝火, 汽车) -> 放在正中心 (0,0)
+            is_hero = any(k in name for k in ['house', 'table', 'desk', 'campfire', 'car', 'fountain', 'bed'])
+
+            # Nature: 环境背景 (树, 石头, 墙) -> 放在外圈
+            is_nature = any(k in name for k in ['tree', 'rock', 'stone', 'bush', 'wall', 'fence'])
+
+            # Companion: 伴随物体 (人, 椅子) -> 放在中圈
+            is_companion = any(k in name for k in ['chair', 'person', 'dog', 'bench'])
+
+            # 2. 计算位置
+            if is_hero:
+                # 核心物体：强制在极小的中心范围内 (0-2米)
+                # 这样场景就有了“视觉焦点”
+                angle = random.uniform(0, 2 * math.pi)
+                radius = random.uniform(0.0, 1.5)
+
+            elif is_nature:
+                # 环境物体：在外圈聚落分布
+                # 如果这个种类的物体（比如 Pine Tree）还没有聚落中心，就随机定一个
+                if obj.model_id not in cluster_bases:
+                    cluster_bases[obj.model_id] = (random.uniform(0, 2*math.pi), random.uniform(5.0, 10.0))
+
+                base_angle, base_radius = cluster_bases[obj.model_id]
+
+                # 在聚落中心附近偏移 (高斯分布)
+                angle = base_angle + random.uniform(-0.5, 0.5) # 弧度偏移
+                radius = base_radius + random.uniform(-2.0, 2.0)
+
+            else: # is_companion / default
+                # 其他物体：均匀散布在中圈 (2-5米)
+                angle = random.uniform(0, 2 * math.pi)
+                radius = random.uniform(2.0, 5.0)
+
+            # 3. 设置坐标
             positions[i] = np.array([
                 math.cos(angle) * radius,
                 0,
                 math.sin(angle) * radius
             ])
-            
+
             # Compute effective radius (half diagonal on XZ plane)
             radii[i] = math.sqrt(bbox[0]**2 + bbox[2]**2) / 2 + 0.5  # Add safety padding
             
@@ -324,25 +387,35 @@ class LayoutEngine:
                         delta = delta / np.linalg.norm(delta) * distance
                     
                     # Collision distance threshold
-                    collision_dist = (radii[i] + radii[j]) * 1.2  # Add buffer
+                    collision_dist = (radii[i] + radii[j]) * 1.05  # Add buffer
                     
                     # Repulsion formula: softened version with force cap
-                    if distance < collision_dist * 1.5:  # Within influence range
+                    if distance < collision_dist * 1.1:  # Within influence range
                         force_direction = delta / distance
-                        strength = self.repulsion_k / ((distance + 0.5) ** 2)
+                        strength = self.repulsion_k / ((distance + 0.1) ** 2)
                         strength = min(strength, MAX_FORCE)
                         force = strength * force_direction
                         
                         forces[i] += force
                         forces[j] -= force
 
-                    # [Semantic attraction] Mild pull for shared tags to form clusters
-                    has_common_tag = not set(objects[i].tags).isdisjoint(set(objects[j].tags))
-                    if has_common_tag and distance > (radii[i] + radii[j]) * 1.5:
-                        attract_strength = 2.0
-                        attract_force = (delta / distance) * attract_strength
-                        forces[i] -= attract_force
-                        forces[j] += attract_force
+                    # 额外的全局引力，防止过度疏离
+                    gravity_strength = 0.05
+                    gravity_dir = delta / distance
+                    forces[i] -= gravity_dir * gravity_strength
+                    forces[j] += gravity_dir * gravity_strength
+
+                    # [Semantic attraction] Pull objects with high embedding similarity
+                    if normalized_vectors:
+                        v_i = normalized_vectors.get(objects[i].model_id)
+                        v_j = normalized_vectors.get(objects[j].model_id)
+                        if v_i is not None and v_j is not None and distance > (radii[i] + radii[j]):
+                            sim = float(np.dot(v_i, v_j))
+                            if sim >= self.semantic_attraction_threshold:
+                                attract_strength = self.semantic_attraction_strength * sim
+                                attract_force = (delta / distance) * attract_strength
+                                forces[i] -= attract_force
+                                forces[j] += attract_force
             
             # Compute attraction toward center
             for i in range(n):
@@ -584,10 +657,11 @@ class LayoutEngine:
                 # Keep character upright
                 node.transform.rotation[0] = 0  # rx = 0
                 node.transform.rotation[2] = 0  # rz = 0
+                node.transform.position[1] = 0
                 
             elif ptype == 'floating':
-                # Floating objects at random height
-                node.transform.position[1] = random.uniform(5, 10)
+                # Floating objects at random height within the band [5, 15]
+                node.transform.position[1] = random.uniform(5.0, 15.0)
                 
             elif ptype == 'prop':
                 # Prop placement: keep current Y (simplified)
@@ -616,13 +690,15 @@ class LayoutEngine:
             pos = node.transform.position
             size = node.bbox_size
             
-            # Eight AABB corners
+            # Center should be at geometry center; current pos is ground-level anchor,
+            # so lift by half height to center the box.
+            center = pos + np.array([0.0, size[1] / 2.0, 0.0])
             half_size = size / 2
             corners = []
             for dx in [-1, 1]:
                 for dy in [-1, 1]:
                     for dz in [-1, 1]:
-                        corner = pos + np.array([
+                        corner = center + np.array([
                             dx * half_size[0],
                             dy * half_size[1],
                             dz * half_size[2]
@@ -632,7 +708,7 @@ class LayoutEngine:
             self.debug_data['aabb_boxes'].append({
                 'model_id': node.model_id,
                 'display_name': node.display_name,
-                'center': pos.tolist(),
+                'center': center.tolist(),
                 'size': size.tolist(),
                 'corners': corners
             })
