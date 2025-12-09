@@ -1,9 +1,7 @@
 """
-Simple wrapper around Google Cloud Storage for storing and fetching 3D model files.
-
-Required environment variables:
-- GCS_MODELS_BUCKET: name of the Cloud Storage bucket that holds model files
-- GCS_MODELS_PREFIX: path prefix inside the bucket, default "models/"
+This file is used to manage the model files in the GCS bucket
+It is used to download the model files from the GCS bucket to the local directory
+and upload the model files from the local directory to the GCS bucket
 """
 
 from __future__ import annotations
@@ -12,7 +10,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Optional
 
-from google.cloud import storage  # type: ignore[import]
+from google.cloud import storage
 
 
 class GCSModelStorage:
@@ -20,29 +18,13 @@ class GCSModelStorage:
 
     def __init__(self, bucket_name: str, base_prefix: str = "models/"):
         self.bucket_name = bucket_name
-        # Ensure prefix ends with a trailing slash if non-empty
         if base_prefix and not base_prefix.endswith("/"):
             base_prefix = base_prefix + "/"
         self.base_prefix = base_prefix
 
-        # Lazily created client & bucket (can be reused across downloads)
-        self._client: Optional[storage.Client] = None
-        self._bucket: Optional[storage.Bucket] = None
-
-    @property
-    def client(self) -> storage.Client:
-        if self._client is None:
-            # This uses Application Default Credentials.
-            # On local dev we typically set GOOGLE_APPLICATION_CREDENTIALS
-            # pointing to the service-account JSON file.
-            self._client = storage.Client()
-        return self._client
-
-    @property
-    def bucket(self) -> storage.Bucket:
-        if self._bucket is None:
-            self._bucket = self.client.bucket(self.bucket_name)
-        return self._bucket
+        # Eagerly create GCS client/bucket; no lazy loading needed.
+        self.client: storage.Client = storage.Client()
+        self.bucket: storage.Bucket = self.client.bucket(self.bucket_name)
 
     def _blob_path_for_filename(self, filename: str) -> str:
         return f"{self.base_prefix}{filename}"
@@ -73,9 +55,8 @@ class GCSModelStorage:
 
     def upload_model(self, local_path: Path, filename: str) -> None:
         """
-        Upload a local model file to the configured GCS bucket.
-
-        The object will be stored at: <base_prefix>/<filename>
+        Upload a local model file to the configured GCS bucket, and the object will be 
+        stored at: <base_prefix>/<filename>
         """
         if not local_path.exists():
             raise FileNotFoundError(f"Local model file not found: {local_path}")
@@ -97,32 +78,26 @@ class GCSModelStorage:
 
     def list_model_files(self):
         """
-        List filenames (relative to base_prefix) that exist in the bucket.
-
-        This is used to backfill the local database with objects that already
-        live in GCS. We only return leaf objects; "directories" are skipped.
+        List filenames that exist in the bucket.
+        This is used to backfill the local database with objects that already live in GCS.
         """
         blobs = self.client.list_blobs(self.bucket_name, prefix=self.base_prefix)
         filenames = []
         for blob in blobs:
-            # Skip placeholders / directory entries
             if blob.name.endswith("/"):
                 continue
 
-            # Strip prefix so the caller receives just the filename
             if self.base_prefix and blob.name.startswith(self.base_prefix):
                 filename = blob.name[len(self.base_prefix) :]
             else:
                 filename = blob.name
 
-            # Defensive: skip empty names
             if not filename:
                 continue
 
             filenames.append(
                 {
                     "filename": filename,
-                    # Allow optional custom metadata on the blob; falls back to defaults
                     "metadata": blob.metadata or {},
                 }
             )

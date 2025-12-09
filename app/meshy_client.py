@@ -5,18 +5,16 @@ I refrence the official doc from here:
 https://docs.meshy.ai/en/api/text-to-3d
 
 Workflow we support here:
-- Create a Text-to-3D preview task (`mode="preview"`) from a text prompt
-- Poll the task status until it finishes
-- Return the OBJ download URL when available
+First, Create a Text-to-3D preview task (`mode="preview"`) from a text prompt
+Second, Poll the task status until it finishes
+Third, Return the OBJ download URL when available
 """
-
-# TODO: Right now we only support the preview mode, we need to support the full mode
 
 from __future__ import annotations
 
 import os
 import time
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 import httpx
 import asyncio
@@ -27,37 +25,21 @@ _DOTENV_LOADED = False
 
 
 def _load_dotenv_from_project_root() -> None:
-    
-    # This is a minimal .env loader for local development, we have to create a .env file in the root of the project
-    # and add the MESHY_API_KEY to it
+    """Minimal .env loader: read .env and set os.environ values."""
     global _DOTENV_LOADED
     if _DOTENV_LOADED:
         return
-
-    try:
-        project_root = Path(__file__).parent.parent
-        env_path = project_root / ".env"
-        if not env_path.exists():
-            _DOTENV_LOADED = True
-            return
-
-        with env_path.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if "=" not in line:
-                    continue
-                key, value = line.split("=", 1)
-                key = key.strip()
-                value = value.strip().strip('"').strip("'")
-                if key and key not in os.environ:
-                    os.environ[key] = value
-    except Exception as e:
-        # Fail silently; we do not want dotenv loading to break the app
-        print(f"[Meshy] Warning: failed to load .env: {e}")
-    finally:
+    env_path = Path(__file__).parent.parent / ".env"
+    if not env_path.exists():
         _DOTENV_LOADED = True
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ[key.strip()] = value.strip().strip('"').strip("'")
+    _DOTENV_LOADED = True
 
 
 class MeshyClient:

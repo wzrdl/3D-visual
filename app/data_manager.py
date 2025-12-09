@@ -1,6 +1,5 @@
 """
-DataManager - handles the local dataset stuff
-Uses SQLite for persistent storage of 3D model metadata
+This file is used at the backend side, it is used to manage the model data and metadata
 """
 
 import json
@@ -25,10 +24,9 @@ from app.schema import (
 )
 
 try:
-    # Optional import – only used when GCS is configured
     from app.gcs_storage import GCSModelStorage
-except Exception:  # pragma: no cover - keep optional
-    GCSModelStorage = None  # type: ignore[assignment]
+except Exception:
+    GCSModelStorage = None  
 
 
 class DataManager:
@@ -114,11 +112,9 @@ class DataManager:
             self.gcs_storage = GCSModelStorage(bucket_name=bucket, base_prefix=prefix)
             print(f"Using GCS bucket '{bucket}' for model files (prefix='{prefix}')")
         except Exception as e:
-            # Fail gracefully and fall back to local-only mode
             print(f"Error initializing GCS model storage: {e}")
             self.gcs_storage = None
 
-    # ---------------------- Vector index helpers ----------------------
     def _infer_placement_type(self, display_name: str, tags: List[str]) -> str:
         """Heuristically infer placement type from name/tags"""
         text = f"{display_name} {' '.join(tags)}".lower()
@@ -139,13 +135,12 @@ class DataManager:
         if not isinstance(tags, list):
             tags = []
         placement_type = self._infer_placement_type(row["display_name"], tags)
-        # Inject placement_type tag for downstream layout rules
         if placement_type not in tags:
             tags.append(placement_type)
         record = {
             "id": row["id"],
             "filename": row["filename"],
-            "name": row["display_name"],  # compatibility
+            "name": row["display_name"],
             "display_name": row["display_name"],
             "tags": tags,
             "placement_type": placement_type,
@@ -180,7 +175,6 @@ class DataManager:
         if not corpus:
             return
         self._embedding_ids = ids
-        # Build semantic embeddings (best-effort)
         self._init_semantic_embeddings()
 
     def _init_semantic_embeddings(self):
@@ -193,7 +187,6 @@ class DataManager:
             self._semantic_ids = list(self._embedding_ids)
             self._encoder = model
         except Exception as e:
-            # Fail silently if sentence-transformers is unavailable
             self._encoder = None
             self._semantic_embeddings = None
     

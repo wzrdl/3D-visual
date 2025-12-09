@@ -1,6 +1,6 @@
 """
-Synchronous HTTP client for talking to the FastAPI backend.
-We use this client to talk to the FastAPI backend
+This backend client is used to talk to the FastAPI backend
+All the endpoints are already created in the backend, we just need to call them here
 """
 
 from __future__ import annotations
@@ -21,15 +21,12 @@ class BackendAPIClient:
         self.api_key = api_key
         self._client = httpx.Client(timeout=60.0)
 
-    # internal helpers 
 
     def _headers(self) -> Dict[str, str]:
         headers: Dict[str, str] = {}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
-
-    # model metadata 
 
     def list_models(self) -> List[Dict[str, Any]]:
         resp = self._client.get(f"{self.base_url}/models", headers=self._headers())
@@ -43,8 +40,6 @@ class BackendAPIClient:
         resp.raise_for_status()
         return resp.json()
 
-    # model file content 
-
     def download_model_content(self, model_id: str) -> bytes:
         resp = self._client.get(
             f"{self.base_url}/models/{model_id}/content",
@@ -52,8 +47,6 @@ class BackendAPIClient:
         )
         resp.raise_for_status()
         return resp.content
-
-    # upload new model 
 
     def upload_model(
         self,
@@ -82,8 +75,6 @@ class BackendAPIClient:
         )
         resp.raise_for_status()
         return resp.json()
-
-    # cleanup 
 
     def close(self) -> None:
         if self._client:
