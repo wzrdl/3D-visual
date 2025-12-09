@@ -7,7 +7,7 @@ import asyncio
 import re
 from pathlib import Path
 
-from PyQt6.QtGui import QImage, QIcon
+from PyQt6.QtGui import QImage, QIcon, QMovie
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLineEdit, QListWidget,
     QListWidgetItem, QPushButton, QTextEdit, QLabel, QHBoxLayout, QGridLayout, QListView
@@ -329,6 +329,16 @@ class AIGenerationPage(BasePage):
         self.status_label.setStyleSheet("color: #444; margin-top: 8px;")
         layout.addWidget(self.status_label)
 
+        # making a gif
+        self.gif_label = QLabel() # to contain the movie
+
+        self.gif_movie = QMovie("assets/models/fysm.gif")
+        # to change the gif, just change this path
+        self.gif_movie.setScaledSize(QSize(480, 480))
+
+        self.gif_label.setMovie(self.gif_movie)
+        layout.addWidget(self.gif_label, 0, Qt.AlignCenter)
+
         # Add stretch to push content to top
         layout.addStretch()
     
@@ -355,6 +365,7 @@ class AIGenerationPage(BasePage):
     def on_generate_clicked(self):
         """When the generate button is pressed"""
         prompt = self.get_prompt()
+        self.gif_movie.start() # starts the gif to start loading
         if not prompt:
             self.status_label.setText("Please enter a text description to generate a 3D model.")
             return
@@ -375,7 +386,7 @@ class AIGenerationPage(BasePage):
         self.worker.finished_success.connect(self.on_generation_success)
         self.worker.start()
 
-        # rotating gif 
+        # rotating gif
 
     def on_generation_error(self, msg: str):
         self.status_label.setText(f"Error: {msg}")
