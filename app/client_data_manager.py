@@ -13,12 +13,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
+
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+import httpx
 
 from app.backend_client import BackendAPIClient
-from sentence_transformers import SentenceTransformer
 
 class ClientDataManager:
     """Client-side data manager using FastAPI backend + local cache."""
@@ -44,25 +48,92 @@ class ClientDataManager:
 
         # In-memory cache of model metadata to avoid repeated HTTP calls
         self._all_models: List[Dict] = []
+        self.name_order: List[str] = []
+        self.vector_database = None
 
-        # sentence transformer, loading mini models
-        self.miniM_model = SentenceTransformer("all-MiniLM-L6-v2") # 'all-mpnet-base-v2' for more accuracy?
-        self.name_order = [] # to be easier to use for scene_brain
-        self.vector_database = None  # as it shouldn't be a standard vector []
+        # Semantic search using sentence-transformers
+        self._stopwords: List[str] = self._load_stopwords()
+        # Semantic search members
+        self._embedding_ids: List[str] = []
+        self._model_lookup: Dict[str, Dict] = {}
+        self._encoder = None
+        self._semantic_embeddings = None  # ndarray
+        self._semantic_ids: List[str] = []
+        self._semantic_model_name = os.getenv("SEMANTIC_MODEL_NAME", "paraphrase-MiniLM-L3-v2")
+        self._failed_downloads: set[str] = set()
+        self._failed_logged: set[str] = set()
 
-        if load_without_test == True:
-            # combine name and tags
+        if load_without_test:
+            # Attempt to prime cache from local backup for offline scenarios
             meta_json_path = "app/assets/metadata.json.backup"
             if os.path.exists(meta_json_path):
                 self.name_order, self.vector_database = self.concatenate_name_tags(meta_json_path)
-            else:
-                print("Error: could not load meta.json")
+            # Build vector index from backend (best-effort)
+            self._init_vector_index()
 
     # metadata 
 
+    def _load_stopwords(self) -> List[str]:
+        """Load optional stopwords list from assets/stopwords.txt"""
+        stopwords_path = Path(__file__).parent.parent / "assets" / "stopwords.txt"
+        if not stopwords_path.exists():
+            return []
+        try:
+            with open(stopwords_path, "r", encoding="utf-8") as f:
+                return [line.strip() for line in f if line.strip()]
+        except Exception:
+            return []
+
+    def _infer_placement_type(self, display_name: str, tags: List[str]) -> str:
+        """Heuristically infer placement type from name/tags."""
+        text = f"{display_name} {' '.join(tags)}".lower()
+        mapping = {
+            "floating": ["cloud", "bird", "plane", "helicopter", "balloon", "star"],
+            "character": ["person", "human", "man", "woman", "child", "soldier", "knight", "ninja", "zombie", "elf", "wizard", "goblin", "cowboy", "doctor", "pirate", "viking", "chef"],
+            "prop": ["cup", "book", "pen", "plate", "vase", "clock", "phone", "pillow", "blanket", "lamp"],
+            "ground": ["tree", "rock", "stone", "car", "chair", "table", "desk", "building", "house", "fence", "wall", "bench"],
+        }
+        for ptype, keywords in mapping.items():
+            if any(k in text for k in keywords):
+                return ptype
+        return "ground"
+
+    def _prepare_model_record(self, model: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize model dict and inject placement_type tag."""
+        tags = model.get("tags") or []
+        if isinstance(tags, str):
+            try:
+                tags = json.loads(tags)
+            except Exception:
+                tags = [tags]
+        if not isinstance(tags, list):
+            tags = []
+        display_name = str(model.get("display_name") or model.get("name") or "")
+        placement_type = self._infer_placement_type(display_name, tags)
+        if placement_type not in tags:
+            tags.append(placement_type)
+        return {
+            **model,
+            "display_name": display_name,
+            "name": display_name,
+            "tags": tags,
+            "placement_type": placement_type,
+        }
+
     def get_all_models(self) -> List[Dict]:
-        """Get all models from backend."""
-        self._all_models = self.api.list_models()
+        """Get all models from backend and normalize."""
+        self._all_models = [self._prepare_model_record(m) for m in self.api.list_models()]
+        # Reset semantic caches so downstream (viewer/scene) can pick up new models
+        self._semantic_embeddings = None
+        self._encoder = None
+        self._semantic_ids = []
+        self._embedding_ids = []
+        self._model_lookup = {m["id"]: m for m in self._all_models}
+        # Best-effort rebuild (fail silently if encoder unavailable)
+        try:
+            self._init_vector_index()
+        except Exception:
+            pass
         return self._all_models
 
     def search_models(self, query: str) -> List[Dict]:
@@ -95,7 +166,130 @@ class ClientDataManager:
                 results.append(m)
         return results
 
-    # model files 
+    # -------- Lightweight semantic search (semantic encoder) --------
+    def _build_vector_corpus(self) -> Tuple[List[str], List[str]]:
+        """Build corpus strings and id list for semantic embedding."""
+        if not self._all_models:
+            self.get_all_models()
+        corpus: List[str] = []
+        ids: List[str] = []
+        self._model_lookup = {m["id"]: m for m in self._all_models}
+
+        for model in self._all_models:
+            name_raw = model.get("display_name", "") or model.get("name", "")
+            name_norm = self._normalize_text(name_raw)
+            if name_norm:
+                corpus.append(name_norm)
+                ids.append(model["id"])
+        return corpus, ids
+
+    def _init_vector_index(self):
+        """Create in-memory semantic vector index for search."""
+        corpus, ids = self._build_vector_corpus()
+        if not corpus:
+            return
+        self._embedding_ids = ids
+        self._init_semantic_embeddings()
+
+    def _init_semantic_embeddings(self):
+        """Build lightweight sentence embeddings if model is available."""
+        try:
+            from sentence_transformers import SentenceTransformer
+            model = SentenceTransformer(self._semantic_model_name)
+            texts = [self._normalize_text(self._model_lookup[mid]["display_name"]) for mid in self._embedding_ids]
+            self._semantic_embeddings = np.array(model.encode(texts, normalize_embeddings=True))
+            self._semantic_ids = list(self._embedding_ids)
+            self._encoder = model
+        except Exception:
+            self._encoder = None
+            self._semantic_embeddings = None
+
+    def semantic_search(self, query: str, top_k: int = 5) -> List[Dict]:
+        """
+        Run lightweight semantic search using sentence-transformers cosine similarity.
+
+        Returns a list of dicts: {"model": model_dict, "score": float}
+        """
+        if not query or not query.strip():
+            return []
+        if self._semantic_embeddings is None or self._encoder is None:
+            self._init_vector_index()
+        if self._semantic_embeddings is None or self._encoder is None:
+            return []
+
+        normalized_query = self._normalize_text(query)
+        if not normalized_query:
+            return []
+        results: List[Dict] = []
+        try:
+            variants = self._synonym_expand(normalized_query)
+            q_emb = self._encoder.encode(variants, normalize_embeddings=True)
+            scores = None
+            for emb in q_emb:
+                s = cosine_similarity([emb], self._semantic_embeddings).flatten()
+                scores = s if scores is None else np.maximum(scores, s)
+            if scores is None:
+                return []
+            ranked_indices = np.argsort(scores)[::-1]
+            for idx in ranked_indices[:top_k]:
+                model_id = self._semantic_ids[idx]
+                model = self._model_lookup.get(model_id)
+                if not model:
+                    continue
+                results.append({"model": model, "score": float(scores[idx])})
+        except Exception:
+            return []
+
+        return results
+
+    def _normalize_text(self, text: str) -> str:
+        """
+        Lowercase and replace any non-alphanumeric (including underscores) with space,
+        so tokens like 'car' survive from names such as 'model_064_a_ferrari_sf90_car'.
+        """
+        text = text.lower()
+        text = re.sub(r"[^a-zA-Z0-9]+", " ", text)
+        return " ".join(text.split())
+
+    def _synonym_expand(self, query: str) -> List[str]:
+        """Expand query with lightweight synonyms for better recall."""
+        base = query.strip().lower()
+        synonyms_map = {
+            "zoo": ["animal", "wildlife", "lion", "tiger", "bear", "snake", "frog", "bird"],
+            "animal": ["wildlife", "creature", "beast"],
+            "car": ["vehicle", "auto", "automobile", "racing car"],
+            "house": ["home", "building"],
+        }
+        extras = synonyms_map.get(base, [])
+        return [base] + extras if extras else [base]
+
+    def get_model_embeddings(self, model_ids: List[str]) -> Dict[str, np.ndarray]:
+        """
+        Return normalized semantic embeddings for given model ids (best-effort).
+
+        Used by layout stage to compute pairwise similarity without tags.
+        """
+        try:
+            self._init_vector_index()
+        except Exception:
+            return {}
+
+        if getattr(self, "_semantic_embeddings", None) is None or getattr(self, "_semantic_ids", None) is None:
+            return {}
+
+        id_to_idx = {mid: idx for idx, mid in enumerate(self._semantic_ids)}
+        vectors: Dict[str, np.ndarray] = {}
+        for mid in model_ids:
+            idx = id_to_idx.get(mid)
+            if idx is None:
+                continue
+            vec = self._semantic_embeddings[idx]
+            norm = np.linalg.norm(vec)
+            if norm > 0:
+                vectors[mid] = vec / norm
+        return vectors
+
+    # model files   
 
     def get_model_path(self, model_id: str) -> Optional[Path]:
         """
@@ -105,7 +299,18 @@ class ClientDataManager:
         - If `assets/models/filename` already exists, return it
         - Otherwise download the file bytes from FastAPI, write them locally, then return the path
         """
-        meta = self.api.get_model(model_id)
+        if model_id in self._failed_downloads:
+            return None
+
+        try:
+            meta = self.api.get_model(model_id)
+        except Exception as e:
+            if model_id not in self._failed_logged:
+                print(f"[ClientDataManager] Skip metadata for {model_id}: {e}")
+                self._failed_logged.add(model_id)
+            self._failed_downloads.add(model_id)
+            return None
+
         filename = meta.get("filename")
         if not filename:
             return None
@@ -114,12 +319,21 @@ class ClientDataManager:
         if local_path.exists():
             return local_path
 
-        content = self.api.download_model_content(model_id)
+        try:
+            content = self.api.download_model_content(model_id)
+        except Exception as e:
+            if model_id not in self._failed_logged:
+                print(f"[ClientDataManager] Skip download for {model_id}: {e}")
+                self._failed_logged.add(model_id)
+            self._failed_downloads.add(model_id)
+            return None
+
         try:
             with open(local_path, "wb") as f:
                 f.write(content)
         except OSError as e:
             print(f"Error writing model cache file {local_path}: {e}")
+            self._failed_downloads.add(model_id)
             return None
 
         return local_path
@@ -144,7 +358,10 @@ class ClientDataManager:
         except Exception:
             pass
 
-    """ Infrastructure and Vector Database """
+    # ============= Legacy Test Support =============
+    # The following method is kept for backward compatibility with existing tests.
+    # New code should use semantic_search() instead.
+    
     def concatenate_name_tags(self, metajson_location: str = None):
         name_tags = []
         self.name_order = []
@@ -182,9 +399,12 @@ class ClientDataManager:
                 name_tags.append(model_name.lower() + " " + " ".join(tags))
                 self.name_order.append(model_name.lower())
 
-        embeddings = self.miniM_model.encode_document(name_tags)
-            # document recommended to use for encode for "your corpus"
-        self.vector_database = embeddings
-        #print(self.vector_database)
-
+        # Build semantic embeddings for the provided corpus (legacy test support)
+        try:
+            from sentence_transformers import SentenceTransformer
+            model = SentenceTransformer(self._semantic_model_name)
+            self.vector_database = model.encode(name_tags, normalize_embeddings=True)
+            self._encoder = model
+        except Exception:
+            self.vector_database = None
         return self.name_order, self.vector_database

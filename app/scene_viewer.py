@@ -41,6 +41,16 @@ class SceneViewer(QtInteractor):
         'grid': '#888888',           # Grid - gray
     }
     
+    # Models known to cause crashes or issues
+    BLACKLISTED_MODELS = [
+        'Wizard.obj',
+        'Wizard',
+        'teapot_simple.obj',
+        'teapot_simple',
+        #'Christmas Tree.obj',
+        #'Christmas Tree',
+    ]
+    
     def __init__(self, parent=None, data_manager=None):
         """
         Args:
@@ -98,23 +108,17 @@ class SceneViewer(QtInteractor):
         """
         External entry: generate and render scene (with optional iteration playback)
         """
-        text = (text or "").strip()
-        if not text:
-            self._emit_status("⚠️ Please enter a scene description")
-            return
-        
-        self.debug_mode = debug_enabled
-        self._emit_status("🔍 Analyzing scene description...")
-        
-        self._ensure_engines()
-        
-        is_forest = self._is_forest_preset(text)
-        if is_forest:
-            self._emit_status("🌲 Loading preset scene forest ...")
-            scene_objects = self._build_forest_scene()
-            summary = f"Forest preset: {len(scene_objects)} assets from testmodel"
-            self._layout_engine.iterations = max(self._layout_engine.iterations, 120)
-        else:
+        try:
+            text = (text or "").strip()
+            if not text:
+                self._emit_status("⚠️ Please enter a scene description")
+                return
+            
+            self.debug_mode = debug_enabled
+            self._emit_status("🔍 Analyzing scene description...")
+            
+            self._ensure_engines()
+            
             self._emit_status("🧠 Performing semantic analysis...")
             scene_objects = self._scene_brain.parse_scene_description(text)
             if not scene_objects:
@@ -122,20 +126,25 @@ class SceneViewer(QtInteractor):
                 return
             summary = self._scene_brain.get_scene_summary(scene_objects)
             self._emit_status(f"✅ {summary}")
-        
-        self._emit_status(f"📐 Running force-directed layout algorithm ({len(scene_objects)} objects)...")
-        models_dir = self._get_models_dir(use_testmodel=is_forest)
-        model_dimensions = self._get_model_dimensions(scene_objects, models_dir)
-        self._scene_nodes = self._layout_engine.layout_scene(scene_objects, model_dimensions)
-        
-        iteration_history = self._layout_engine.debug_data.get('iteration_history', []) if debug_enabled else []
-        
-        self._emit_status("🎨 Rendering 3D scene...")
-        if iteration_history:
-            self._emit_status("🎞️ Playing back force-directed iterations...")
-            self._play_iteration_history(models_dir, iteration_history, summary, debug_enabled)
-        else:
-            self._render_final_scene(models_dir, summary, debug_enabled)
+            
+            self._emit_status(f"📐 Running force-directed layout algorithm ({len(scene_objects)} objects)...")
+            models_dir = self._get_models_dir()
+            model_dimensions = self._get_model_dimensions(scene_objects, models_dir)
+            semantic_vectors = self._get_model_embeddings(scene_objects)
+            self._scene_nodes = self._layout_engine.layout_scene(scene_objects, model_dimensions, semantic_vectors)
+            
+            iteration_history = self._layout_engine.debug_data.get('iteration_history', []) if debug_enabled else []
+            
+            self._emit_status("🎨 Rendering 3D scene...")
+            if iteration_history:
+                self._emit_status("🎞️ Playing back force-directed iterations...")
+                self._play_iteration_history(models_dir, iteration_history, summary, debug_enabled)
+            else:
+                self._render_final_scene(models_dir, summary, debug_enabled)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self._emit_status(f"❌ Scene generation failed: {e}")
     
     def load_model_file(self, file_path: str) -> Optional[pv.PolyData]:
         """
@@ -210,7 +219,11 @@ class SceneViewer(QtInteractor):
         
         # Render each node
         for node in all_nodes:
-            self._render_node(node, models_dir)
+            try:
+                self._render_node(node, models_dir)
+            except Exception as e:
+                print(f"[SceneViewer] render_node failed for {node.model_id}: {e}")
+                continue
         
         # Render debug info if enabled
         if self.debug_mode and debug_data:
@@ -329,6 +342,11 @@ class SceneViewer(QtInteractor):
             node: Scene node
             models_dir: Models directory
         """
+        # Skip blacklisted models
+        if node.filename in self.BLACKLISTED_MODELS or node.model_id in self.BLACKLISTED_MODELS:
+            print(f"[SceneViewer] Skipping render for blacklisted model: {node.filename}")
+            return
+
         # Build model path; fetch via data_manager if missing locally
         model_path = models_dir / node.filename
 
@@ -337,6 +355,11 @@ class SceneViewer(QtInteractor):
                 dm_path = self.data_manager.get_model_path(node.model_id)
                 if dm_path:
                     model_path = Path(dm_path)
+                else:
+                    failed = getattr(self.data_manager, "_failed_downloads", None)
+                    if failed is not None and node.model_id in failed:
+                        print(f"[SceneViewer] Skipping render for failed model download: {node.model_id}")
+                        return
             except Exception as e:
                 print(f"[SceneViewer] Error fetching model from backend (id={node.model_id}): {e}")
 
@@ -348,29 +371,40 @@ class SceneViewer(QtInteractor):
             mesh = self.load_model_file(str(model_path))
             if mesh is None:
                 mesh = self._create_placeholder(node.bbox_size)
-        
+
+        self._add_mesh_safe(mesh, node)
+
+    def _add_mesh_safe(self, mesh: pv.PolyData, node: SceneNode):
+        """Normalize, transform, and add mesh with exception safety."""
         # === Geometry normalization ===
         try:
-            mesh = self._normalize_mesh(mesh, node.placement_type)
+            # Pass display_name for semantic scaling
+            mesh = self._normalize_mesh(mesh, node.placement_type, node.display_name)
         except Exception as e:
             print(f"[SceneViewer] normalize mesh failed: {e}")
         
         # Apply transform
-        transformed_mesh = self._apply_transform(mesh, node.transform)
+        try:
+            transformed_mesh = self._apply_transform(mesh, node.transform)
+        except Exception as e:
+            print(f"[SceneViewer] apply transform failed: {e}")
+            transformed_mesh = mesh
 
         # Add to scene with a unified base material (no extra textures)
         actor_name = getattr(node, "instance_id", None) or node.display_name or node.model_id
-        actor = self.add_mesh(
-            transformed_mesh,
-            name=actor_name,  # Use unique instance ID to avoid actor overwrite
-            show_edges=False,
-            smooth_shading=True,
-            pbr=True,  # Use PBR rendering
-            metallic=0.1,
-            roughness=0.5,
-        )
-        
-        self._scene_actors.append(actor)
+        try:
+            actor = self.add_mesh(
+                transformed_mesh,
+                name=actor_name,  # Use unique instance ID to avoid actor overwrite
+                show_edges=False,
+                smooth_shading=True,
+                pbr=True,  # Use PBR rendering
+                metallic=0.1,
+                roughness=0.5,
+            )
+            self._scene_actors.append(actor)
+        except Exception as e:
+            print(f"[SceneViewer] add_mesh failed for {actor_name}: {e}")
     
     def _create_placeholder(self, bbox_size: np.ndarray) -> pv.PolyData:
         """
@@ -425,30 +459,81 @@ class SceneViewer(QtInteractor):
         
         return result
 
-    def _normalize_mesh(self, mesh: pv.PolyData, placement_type: str) -> pv.PolyData:
+    def _normalize_mesh(self, mesh: pv.PolyData, placement_type: str, display_name: str = "") -> pv.PolyData:
         """
-        Geometry normalization:
+        Geometry normalization and auto-scaling.
+        
         1) Move mesh center to origin
         2) For ground/character/prop, align bottom to Y=0 to avoid floating/penetration
+        3) Normalize scale to a unit size (max_dim=1.0) and then apply semantic scaling
         """
         norm_mesh = mesh.copy()
+        
+        # 1. Center geometry
         center = norm_mesh.center
         norm_mesh.points -= center
+        
+        # 2. Normalize scale (Unit Box Normalization)
+        # This fixes "abnormally large" models by pulling everything to 1.0 first
+        bounds = norm_mesh.bounds
+        size = np.array([
+            bounds[1] - bounds[0],
+            bounds[3] - bounds[2],
+            bounds[5] - bounds[4]
+        ])
+        max_dim = np.max(size)
+        
+        if max_dim > 0:
+            scale_factor = 1.0 / max_dim
+            norm_mesh.points *= scale_factor
+            
+            # 3. Apply semantic scaling (Heuristic based on object type)
+            # Since everything is now 1.0, we scale it to a "Reasonable" size in meters
+            semantic_scale = self._get_semantic_scale(display_name)
+            norm_mesh.points *= semantic_scale
 
+        # 4. Ground alignment (after scaling)
         if placement_type in ['ground', 'character', 'prop']:
             y_min = norm_mesh.bounds[2]
             norm_mesh.points[:, 1] -= y_min
 
         return norm_mesh
 
-    def _load_mesh_normalized_for_dimension(self, model_path: Path, placement_type: str) -> Optional[pv.PolyData]:
+    def _get_semantic_scale(self, display_name: str) -> float:
+        """
+        Get expected size (max dimension in meters) based on object name.
+        """
+        name = display_name.lower()
+        
+        if any(k in name for k in ['tree']):
+            return 4.0
+        if any(k in name for k in ['house', 'building', 'castle']):
+            return 8.0
+        if any(k in name for k in ['car', 'truck', 'vehicle']):
+            return 3.0
+        if any(k in name for k in ['person', 'soldier', 'knight', 'wizard', 'man', 'woman']):
+            return 1.8
+        if any(k in name for k in ['table', 'desk']):
+            return 1.5
+        if any(k in name for k in ['chair', 'bench']):
+            return 1.0
+        if any(k in name for k in ['rock', 'stone']):
+            return 1.2
+        if any(k in name for k in ['cup', 'mug', 'pot', 'bottle', 'lamp']):
+            return 0.4
+            
+        return 1.2  # Default size
+
+
+    def _load_mesh_normalized_for_dimension(self, model_path: Path, placement_type: str, display_name: str = "") -> Optional[pv.PolyData]:
         """
         为尺寸测量加载并归一化 mesh，确保 obj / glb 使用同一流程
         """
         mesh = self.load_model_file(str(model_path))
         if mesh is None:
             return None
-        return self._normalize_mesh(mesh, placement_type)
+        # Use the same normalization as rendering (unit+semantic scaling + ground align)
+        return self._normalize_mesh(mesh, placement_type, display_name)
     
     def _render_debug_info(self, debug_data: Dict):
         """
@@ -711,12 +796,10 @@ class SceneViewer(QtInteractor):
             'up_vector': list(pos[2]) if pos else [0, 1, 0]
         }
     
-    # ===== 辅助：模型目录、尺寸、预设 =====
-    def _get_models_dir(self, use_testmodel: bool = False) -> Path:
-        base = Path(__file__).parent.parent / 'assets'
-        if use_testmodel:
-            return base / 'testmodel'
-        return base / 'models'
+    # ===== 辅助：模型目录、尺寸 =====
+    def _get_models_dir(self) -> Path:
+        """Get the models directory path."""
+        return Path(__file__).parent.parent / 'assets' / 'models'
     
     def _get_model_dimensions(self, scene_objects: List["SceneObject"], models_dir: Path) -> dict:
         """
@@ -725,6 +808,8 @@ class SceneViewer(QtInteractor):
         1) load_model_file (PyVista)
         2) _normalize_mesh (center to origin, drop to ground)
         3) Compute size from normalized bounds
+
+        Large or unavailable models are skipped and will use fallback sizes to avoid crashes.
         """
         import numpy as np
         dimensions: Dict[str, np.ndarray] = {}
@@ -732,6 +817,11 @@ class SceneViewer(QtInteractor):
 
         for obj in scene_objects:
             if obj.model_id in dimensions:
+                continue
+            
+            # Skip blacklisted models
+            if obj.filename in self.BLACKLISTED_MODELS or obj.model_id in self.BLACKLISTED_MODELS:
+                print(f"[SceneViewer] Skipping blacklisted model: {obj.filename}")
                 continue
 
             model_path = models_dir / obj.filename
@@ -742,20 +832,29 @@ class SceneViewer(QtInteractor):
                     dm_path = self.data_manager.get_model_path(obj.model_id)
                     if dm_path:
                         model_path = Path(dm_path)
+                    else:
+                        failed = getattr(self.data_manager, "_failed_downloads", None)
+                        if failed is not None and obj.model_id in failed:
+                            continue
                 except Exception as e:
                     print(f"[SceneViewer] fetch model for dimension failed (id={obj.model_id}): {e}")
 
             if model_path.exists():
-                mesh = self._load_mesh_normalized_for_dimension(model_path, obj.placement_type)
-                if mesh is not None:
-                    bounds = mesh.bounds
-                    size = np.array([
-                        bounds[1] - bounds[0],
-                        bounds[3] - bounds[2],
-                        bounds[5] - bounds[4],
-                    ])
-                    dimensions[obj.model_id] = size
-                    continue
+                try:
+                    # Pass display_name to ensure correct semantic scaling
+                    mesh = self._load_mesh_normalized_for_dimension(model_path, obj.placement_type, obj.display_name)
+                    
+                    if mesh is not None:
+                        bounds = mesh.bounds
+                        size = np.array([
+                            bounds[1] - bounds[0],
+                            bounds[3] - bounds[2],
+                            bounds[5] - bounds[4],
+                        ])
+                        dimensions[obj.model_id] = size
+                        continue
+                except Exception as e:
+                    print(f"[SceneViewer] dimension fallback for {obj.model_id}: {e}")
 
             # Fallback defaults
             name = obj.display_name.lower()
@@ -772,39 +871,17 @@ class SceneViewer(QtInteractor):
             else:
                 dimensions[obj.model_id] = np.array([1.0, 1.0, 1.0])
         return dimensions
-    
-    def _is_forest_preset(self, text: str) -> bool:
-        return text.strip().lower() == "forest"
-    
-    def _build_forest_scene(self) -> List[SceneObject]:
-        """Build scene objects using all glb files under assets/testmodel"""
-        test_dir = self._get_models_dir(use_testmodel=True)
-        if not test_dir.exists():
-            raise FileNotFoundError(f"testmodel directory does not exist: {test_dir}")
-        
-        scene_objects: List[SceneObject] = []
-        for glb_path in sorted(test_dir.glob("*.glb")):
-            model_id = glb_path.stem
-            filename = glb_path.name
-            lower_name = model_id.lower()
-            if "tree" in lower_name:
-                placement_type = "ground"
-            elif "rock" in lower_name:
-                placement_type = "ground"
-            else:
-                placement_type = "ground"
-            
-            scene_obj = SceneObject(
-                model_id=model_id,
-                display_name=model_id,
-                filename=filename,
-                count=1,
-                tags=["forest"],
-                placement_type=placement_type,
-                is_parent=False,
-                parent_id=None
-            )
-            scene_objects.append(scene_obj)
-        
-        return scene_objects
+
+    def _get_model_embeddings(self, scene_objects: List["SceneObject"]) -> Dict[str, np.ndarray]:
+        """
+        Fetch normalized semantic embeddings for the given scene objects (best-effort).
+        """
+        if not self.data_manager:
+            return {}
+        try:
+            model_ids = list({obj.model_id for obj in scene_objects})
+            return self.data_manager.get_model_embeddings(model_ids)
+        except Exception as e:
+            print(f"[SceneViewer] semantic embedding fetch failed: {e}")
+            return {}
 

@@ -19,7 +19,7 @@ class BackendAPIClient:
         base = api_url or os.getenv("BACKEND_API_URL", "http://127.0.0.1:8000")
         self.base_url = base.rstrip("/")
         self.api_key = api_key
-        self._client = httpx.Client(timeout=30.0)
+        self._client = httpx.Client(timeout=60.0)
 
     # internal helpers 
 

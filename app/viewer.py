@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 import pyvista as pv
+import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QWidget
 from pyvistaqt import QtInteractor
@@ -24,6 +25,15 @@ def suppress_vtk_warnings():
     Temporarily silence VTK/OpenGL warnings that are printed to stderr,
     e.g. wglMakeCurrent errors on Windows during off‑screen rendering.
     """
+    # Try to use VTK's own silence mechanism
+    try:
+        import vtkmodules.all as vtk
+        output = vtk.vtkOutputWindow.GetInstance()
+        if output:
+            output.GlobalWarningDisplayOff()
+    except ImportError:
+        pass
+    
     original_stderr = sys.stderr
     try:
         with open(os.devnull, "w") as devnull:
@@ -31,6 +41,7 @@ def suppress_vtk_warnings():
             yield
     finally:
         sys.stderr = original_stderr
+
 
 
 class ThreeDViewer(QtInteractor):
@@ -56,6 +67,62 @@ class ThreeDViewer(QtInteractor):
         return pv.read(file_path)
 
     @staticmethod
+    def ensure_polydata(mesh: pv.DataSet) -> pv.PolyData:
+        """
+        Ensure a PolyData is returned (handles MultiBlock by merging/extracting).
+        """
+        if isinstance(mesh, pv.MultiBlock):
+            try:
+                merged = pv.merge_blocks(mesh)
+                return merged.extract_geometry()
+            except Exception:
+                # Fallback: pick the first usable geometry block
+                for block in mesh:
+                    if block is None:
+                        continue
+                    try:
+                        return block.extract_geometry()
+                    except Exception:
+                        continue
+                return pv.PolyData()
+        if isinstance(mesh, pv.PolyData):
+            return mesh
+        try:
+            return mesh.extract_geometry()
+        except Exception:
+            return pv.PolyData()
+
+    @staticmethod
+    def normalize_mesh(mesh: pv.PolyData) -> pv.PolyData:
+        """
+        Normalize mesh to unit size and center it.
+        This prevents huge models from clipping or being hard to navigate.
+        """
+        norm_mesh = ThreeDViewer.ensure_polydata(mesh).copy()
+        
+        # 1. Center
+        center = norm_mesh.center
+        norm_mesh.points -= center
+        
+        # 2. Normalize scale
+        bounds = norm_mesh.bounds
+        size = np.array([
+            bounds[1] - bounds[0],
+            bounds[3] - bounds[2],
+            bounds[5] - bounds[4]
+        ])
+        max_dim = np.max(size)
+        
+        if max_dim > 0:
+            scale_factor = 1.0 / max_dim
+            norm_mesh.points *= scale_factor
+            
+            # Scale up slightly to be visible in default view (e.g. size 2.0 approx)
+            norm_mesh.points *= 2.0
+            
+        return norm_mesh
+
+    @staticmethod
     def setup_light():
         """Create a light that shines straight down from above the model."""
         light = pv.Light(
@@ -76,6 +143,7 @@ class ThreeDViewer(QtInteractor):
         with suppress_vtk_warnings():
             thumbnail = pv.Plotter(off_screen=True, window_size=[600, 600])
             mesh = ThreeDViewer.load_model(file_path)
+            mesh = ThreeDViewer.ensure_polydata(mesh)
             thumbnail.add_mesh(mesh)
             thumbnail.set_background("white")
 
@@ -90,12 +158,20 @@ class ThreeDViewer(QtInteractor):
         thumbnails_dir.mkdir(parents=True, exist_ok=True)
         thumbnail_path = thumbnails_dir / file_name
 
-        # positioning the camera
-        thumbnail.view_isometric()
-        # to include the full model
+        # Position camera similar to main viewer: upper-left diagonal
+        bounds = mesh.bounds
+        center = mesh.center
+        extent = max(bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4], 1.0)
+        distance = max(extent * 2.0, 2.5)
+        camera_height = distance * 0.7
+        camera_dist = distance * 0.7
+        camera_pos = (
+            center[0] - camera_dist,
+            center[1] + camera_height,
+            center[2] + camera_dist,
+        )
+        thumbnail.camera_position = [camera_pos, center, (0, 1, 0)]
         thumbnail.reset_camera()
-        # optional zoom
-        thumbnail.camera.zoom(0.9)
         thumbnail.screenshot(str(thumbnail_path))
         thumbnail.close()  # IMPORTANT
 

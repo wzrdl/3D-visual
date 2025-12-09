@@ -12,8 +12,9 @@ from app.client_data_manager import ClientDataManager
 from app.pages import GalleryPage, AIGenerationPage, ViewerPage, SceneGeneratorPage
 
 # Suppress VTK warnings during cleanup
-os.environ['VTK_LOGGING_LEVEL'] = 'ERROR'
-
+os.environ['VTK_SILENCE_GET_VOID_POINTER_WARNINGS'] = '1'
+# 0 means no logging, 9 means all logging
+os.environ['VTK_LOGGING_LEVEL'] = 'OFF'
 
 class MainWindow(QMainWindow):
     """The main window that holds all the tabs"""
@@ -66,14 +67,6 @@ class MainWindow(QMainWindow):
             data_manager=self.data_manager,
         )
         self.tabs.addTab(self.scene_generator_page, "🎬 Scene Generator")
-
-        # TODO: the logic we need to rewrite
-        """
-        # link buttons to this
-        self.viewer_page.download_button.clicked.connect(self.clicked_download_button)
-        self.viewer_page.light_button.clicked.connect(self.toggle_light_button)
-        self.viewer_page.gallery_button.clicked.connect(self.clicked_gallery_button)
-        """
 
         main_layout.addWidget(self.tabs)
         central_widget.setLayout(main_layout)
