@@ -9,7 +9,7 @@ import json
 from typing import List, Dict
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 
 from app.data_manager import DataManager
 
@@ -72,8 +72,26 @@ def get_model(model_id: str) -> Dict:
 def download_model_content(model_id: str):
     """
     Return the binary content of the specified model file for client-side caching.
+    If GCS is configured, return a signed URL (redirect) to avoid Cloud Run size limits.
     """
     dm = _get_dm()
+    # First, try GCS signed URL if configured
+    if getattr(dm, "gcs_storage", None) is not None:
+        try:
+            # Look up filename from DB
+            models = [m for m in dm.get_all_models() if m["id"] == model_id]
+            if not models:
+                raise HTTPException(status_code=404, detail="Model not found")
+            filename = models[0]["filename"]
+            signed_url = dm.gcs_storage.generate_signed_url(filename=filename, expiration_seconds=3600)  # type: ignore[union-attr]
+            return RedirectResponse(url=signed_url, status_code=307)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="Model file not found in GCS")
+        except Exception as e:
+            # Fall back to local delivery if signed URL fails
+            print(f"Signed URL generation failed for {model_id}: {e}")
+
+    # Fallback: serve local file (for local dev or when GCS not configured)
     path = dm.get_model_path(model_id)
     if not path or not path.exists():
         raise HTTPException(status_code=404, detail="Model file not found")

@@ -8,6 +8,7 @@ Required environment variables:
 
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -83,6 +84,16 @@ class GCSModelStorage:
         blob = self.bucket.blob(blob_path)
         blob.upload_from_filename(str(local_path))
         print(f"Uploaded model to gs://{self.bucket_name}/{blob_path}")
+
+    def generate_signed_url(self, filename: str, expiration_seconds: int = 3600) -> str:
+        """
+        Generate a time-limited signed URL for downloading a model directly from GCS.
+        """
+        blob_path = self._blob_path_for_filename(filename)
+        blob = self.bucket.blob(blob_path)
+        if not blob.exists():
+            raise FileNotFoundError(f"GCS object not found: gs://{self.bucket_name}/{blob_path}")
+        return blob.generate_signed_url(expiration=timedelta(seconds=expiration_seconds))
 
     def list_model_files(self):
         """

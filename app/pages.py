@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLineEdit, QListWidget,
     QListWidgetItem, QPushButton, QTextEdit, QLabel, QHBoxLayout, QGridLayout, QListView
 )
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal
 from app.viewer import ThreeDViewer
 from app.meshy_client import MeshyClient
 from app.client_data_manager import ClientDataManager
@@ -33,6 +33,108 @@ class BasePage(QWidget):
     def setup_ui(self):
         """Build the UI - each page needs to implement this"""
         raise NotImplementedError("Subclasses must implement setup_ui()")
+
+
+class GenerationWorker(QThread):
+    """Worker thread for AI generation to avoid freezing the UI"""
+    status_update = pyqtSignal(str)
+    finished_success = pyqtSignal()
+    error_occurred = pyqtSignal(str)
+
+    def __init__(self, meshy_client, data_manager, prompt: str, parent=None):
+        super().__init__(parent)
+        self.client = meshy_client
+        self.data_manager = data_manager
+        self.prompt = prompt
+
+    def run(self):
+        """Run the async task in a new event loop on this thread"""
+        try:
+            asyncio.run(self._run_async())
+        except Exception as e:
+            self.error_occurred.emit(f"Worker error: {str(e)}")
+
+    def _next_model_id(self) -> str:
+        """Generate next model id (thread-safe enough for this context)"""
+        try:
+            models = self.data_manager.get_all_models()
+            ids = []
+            for m in models:
+                mid = str(m.get("id") or "")
+                if mid.startswith("model_"):
+                    try:
+                        ids.append(int(mid.replace("model_", "")))
+                    except ValueError:
+                        continue
+            if not ids:
+                return "model_001"
+            return f"model_{max(ids) + 1:03d}"
+        except Exception:
+            return "model_999"
+
+    def _build_filename(self, model_id: str, prompt: str) -> str:
+        safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", prompt.strip().lower()) or "model"
+        if len(safe) > 40:
+            safe = safe[:40]
+        return f"{model_id}_{safe}.obj"
+
+    async def _run_async(self):
+        self.status_update.emit("Calling Meshy to generate 3D model (this may take 2-5 minutes)...")
+        
+        # 1. Generate
+        result = await self.client.generate_model(self.prompt)
+        if not result.get("success"):
+            error = result.get("error") or "unknown error"
+            self.error_occurred.emit(f"Meshy generation failed: {error}")
+            return
+
+        obj_url = result.get("obj_url")
+        if not obj_url:
+            self.error_occurred.emit("Meshy result does not contain an OBJ download URL.")
+            return
+
+        # 2. Download
+        assets_dir = Path(__file__).parent.parent / "assets"
+        models_dir = assets_dir / "models"
+        models_dir.mkdir(parents=True, exist_ok=True)
+
+        model_id = self._next_model_id()
+        filename = self._build_filename(model_id, self.prompt)
+        local_path = models_dir / filename
+
+        self.status_update.emit("Downloading OBJ model from Meshy...")
+        ok = await self.client.download_model(obj_url, str(local_path))
+        if not ok:
+            self.error_occurred.emit("Failed to download OBJ from Meshy.")
+            return
+
+        # 3. Upload/Save
+        try:
+            file_bytes = local_path.read_bytes()
+        except OSError as e:
+            self.error_occurred.emit(f"Failed to read downloaded file: {e}")
+            return
+
+        display_name = self.prompt.strip() or "AI Generated Model"
+        tags = ["ai", "meshy"]
+
+        self.status_update.emit("Uploading model to backend...")
+        try:
+            # Note: This calls requests/httpx synchronously usually, which is fine in a worker thread
+            resp = self.data_manager.api.upload_model(
+                name=display_name,
+                tags=tags,
+                file_bytes=file_bytes,
+                filename=filename,
+                model_id=model_id,
+            )
+            print(f"Upload response: {resp}")
+        except Exception as e:
+            self.error_occurred.emit(f"Error uploading to backend: {e}")
+            return
+
+        self.status_update.emit("Generation complete!")
+        self.finished_success.emit()
 
 
 class GalleryPage(BasePage):
@@ -94,13 +196,14 @@ class GalleryPage(BasePage):
             item.setText(model['display_name'])
             item.setData(Qt.ItemDataRole.UserRole, model)
 
-            # model thumbnail
+            # model thumbnail - use cross-platform path
             model_name = model['filename']
-            thumbnail_path = ".\\assets\\thumbnails\\" + model_name[:-4] + ".png"
+            project_root = Path(__file__).parent.parent
+            thumbnail_path = project_root / "assets" / "thumbnails" / (Path(model_name).stem + ".png")
 
             # Ensure we have a local copy of the model before generating thumbnail.
             # This will download from backend/GCS if needed.
-            if not os.path.exists(thumbnail_path):
+            if not thumbnail_path.exists():
                 model_id = model.get("id")
                 model_path_fs: str | None = None
                 try:
@@ -108,6 +211,9 @@ class GalleryPage(BasePage):
                         path_obj = self.data_manager.get_model_path(model_id)
                         if path_obj is not None:
                             model_path_fs = str(path_obj)
+                        else:
+                            # mark failure to avoid retry loop
+                            model_path_fs = None
                 except Exception as e:
                     print(f"Error resolving model path for thumbnail (id={model_id}): {e}")
                     model_path_fs = None
@@ -118,9 +224,12 @@ class GalleryPage(BasePage):
                         thumbnail_object.generate_thumbnail(model_path_fs)
                     except Exception as e:
                         print(f"Error generating thumbnail for '{model_name}': {e}")
+                else:
+                    # Skip thumbnail generation if file missing/unreachable
+                    model_path_fs = None
 
-            if os.path.exists(thumbnail_path):
-                thumbnail = QIcon(thumbnail_path)
+            if thumbnail_path.exists():
+                thumbnail = QIcon(str(thumbnail_path))
                 item.setIcon(thumbnail)
 
             self.model_list.addItem(item)
@@ -243,99 +352,6 @@ class AIGenerationPage(BasePage):
             )
             return None
 
-    def _next_model_id(self) -> str:
-        """Generate next model id, mirroring backend DataManager.get_next_id() behavior."""
-        models = self.data_manager.get_all_models()
-        ids = []
-        for m in models:
-            mid = str(m.get("id") or "")
-            if mid.startswith("model_"):
-                try:
-                    ids.append(int(mid.replace("model_", "")))
-                except ValueError:
-                    continue
-        if not ids:
-            return "model_001"
-        return f"model_{max(ids) + 1:03d}"
-
-    def _build_filename(self, model_id: str, prompt: str) -> str:
-        """Create a reasonably safe filename from model id + prompt."""
-        safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", prompt.strip().lower()) or "model"
-        if len(safe) > 40:
-            safe = safe[:40]
-        return f"{model_id}_{safe}.obj"
-
-    async def _generate_and_upload(self, prompt: str) -> None:
-        """Async workflow: Meshy -> download OBJ -> upload to backend (which mirrors to GCS)."""
-        client = self._ensure_meshy_client()
-        if client is None:
-            return
-        
-        self.status_label.setText("Calling Meshy to generate 3D model (this may take some time)...")
-        result = await client.generate_model(prompt)
-        if not result.get("success"):
-            error = result.get("error") or "unknown error"
-            print(f"Meshy generation failed: {error}")
-            self.status_label.setText(f"Meshy generation failed: {error}")
-            return
-
-        obj_url = result.get("obj_url")
-        if not obj_url:
-            self.status_label.setText("Meshy result does not contain an OBJ download URL.")
-            return
-
-        # Decide local save path (also acts as client cache)
-        assets_dir = Path(__file__).parent.parent / "assets"
-        models_dir = assets_dir / "models"
-        models_dir.mkdir(parents=True, exist_ok=True)
-
-        model_id = self._next_model_id()
-        filename = self._build_filename(model_id, prompt)
-        local_path = models_dir / filename
-
-        self.status_label.setText("Downloading OBJ model from Meshy...")
-        ok = await client.download_model(obj_url, str(local_path))
-        if not ok:
-            self.status_label.setText("Failed to download OBJ from Meshy.")
-            return
-
-        # Read bytes to upload to backend; backend will save locally and upload to GCS (if configured)
-        try:
-            file_bytes = local_path.read_bytes()
-        except OSError as e:
-            print(f"Error reading downloaded OBJ file: {e}")
-            self.status_label.setText("Failed to read downloaded OBJ file.")
-            return
-
-        display_name = prompt.strip() or "AI Generated Model"
-        tags = ["ai", "meshy"]
-
-        self.status_label.setText("Uploading model to backend (will write to DB and sync to GCS)...")
-        try:
-            # Uses FastAPI backend /models endpoint; backend will call DataManager.save_model_to_gallery
-            resp = self.data_manager.api.upload_model(
-                name=display_name,
-                tags=tags,
-                file_bytes=file_bytes,
-                filename=filename,
-                model_id=model_id,
-            )
-            print(f"Upload response: {resp}")
-        except Exception as e:
-            print(f"Error uploading model to backend: {e}")
-            self.status_label.setText("Upload to backend / GCS failed.")
-            return
-
-        # Refresh in-memory list and optionally refresh gallery UI
-        self.data_manager.get_all_models()
-        if self.gallery_page is not None:
-            try:
-                self.gallery_page.load_models()
-            except Exception as e:
-                print(f"Error refreshing gallery page: {e}")
-
-        self.status_label.setText("Generation complete: model has been added to Gallery and uploaded to GCP.")
-
     def on_generate_clicked(self):
         """When the generate button is pressed"""
         prompt = self.get_prompt()
@@ -343,21 +359,41 @@ class AIGenerationPage(BasePage):
             self.status_label.setText("Please enter a text description to generate a 3D model.")
             return
 
-        # Basic UI feedback
-        self.generate_button.setEnabled(False)
-        self.generate_button.setText("Generating...")
-        self.status_label.setText("Calling Meshy API to generate model...")
+        client = self._ensure_meshy_client()
+        if not client:
+            return
 
+        # Disable button to prevent double-click
+        self.generate_button.setEnabled(False)
+        self.generate_button.setText("Generating... (Please Wait)")
+        self.status_label.setText("Starting generation worker...")
+
+        # Create and start worker
+        self.worker = GenerationWorker(client, self.data_manager, prompt, self)
+        self.worker.status_update.connect(self.status_label.setText)
+        self.worker.error_occurred.connect(self.on_generation_error)
+        self.worker.finished_success.connect(self.on_generation_success)
+        self.worker.start()
+
+    def on_generation_error(self, msg: str):
+        self.status_label.setText(f"Error: {msg}")
+        self._reset_ui()
+
+    def on_generation_success(self):
+        self.status_label.setText("Success! Model added to Gallery.")
+        self._reset_ui(success=True)
+        
+        # Refresh gallery
         try:
-            # Run the async workflow in a fresh event loop (PyQt main thread has no asyncio loop)
-            asyncio.run(self._generate_and_upload(prompt))
-            self.generate_button.setText("Generate Again")
+            self.data_manager.get_all_models()
+            if self.gallery_page:
+                self.gallery_page.load_models()
         except Exception as e:
-            print(f"Error during AI generation flow: {e}")
-            self.status_label.setText(f"Error occurred during generation flow: {e}")
-            self.generate_button.setText("Generate")
-        finally:
-            self.generate_button.setEnabled(True)
+            print(f"Error refreshing gallery: {e}")
+
+    def _reset_ui(self, success=False):
+        self.generate_button.setEnabled(True)
+        self.generate_button.setText("Generate Again" if success else "Generate")
 
     def clear_prompt(self):
         """Wipe out the text in the input box"""
@@ -450,17 +486,25 @@ class ViewerPage(BasePage):
             # Load new model
             self.model_path = str(model_path)  # so that download function can access it
             mesh = ThreeDViewer.load_model(model_path)
+            
+            # Normalize dimensions to avoid huge models
+            mesh = ThreeDViewer.normalize_mesh(mesh)
+            
             self.viewer.add_mesh(mesh)
 
             # Top-down light from above (positive Z direction)
             self.light = ThreeDViewer.setup_light()
             self.viewer.add_light(self.light)
 
-            # Default to viewing the model from the "front"
-            # Assume the model's forward direction is the Z axis (+Z forward) and Y is the vertical up axis
+            # Default camera: similar to SceneViewer, from upper-right diagonal
             cx, cy, cz = mesh.center
-            distance = max(getattr(mesh, "length", 1.0), 1.0)
-            camera_pos = (cx, cy, cz + 1.5 * distance)  # In +Z direction, looking straight at the model
+            bounds = mesh.bounds  # (xmin, xmax, ymin, ymax, zmin, zmax)
+            extent = max(bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4], 1.0)
+            distance = max(extent * 2.0, 2.5)
+            camera_height = distance * 0.7
+            camera_dist = distance * 0.7
+            # From upper-left diagonal (negative X, positive Z)
+            camera_pos = (cx - camera_dist, cy + camera_height, cz + camera_dist)
             # Use +Y as the up direction to keep the model upright in the view
             self.viewer.camera_position = [camera_pos, (cx, cy, cz), (0, 1, 0)]
 
@@ -526,43 +570,9 @@ class ViewerPage(BasePage):
         return
 
     def clicked_gallery_button(self):
-        """When the gallery button is pressed"""
-        # print("gallery clicked")
-
-        # the following two lines tests the thumbnail generation
-        #threeD = ThreeDViewer()
-        #threeD.generate_thumbnail(self.model_path)
-
-        # gallery = DataManager()
-
-        # need the following values to add to gallery
-
-        #model id
-        #model_id = gallery.get_next_id()
-
-        # filename
-        #filename = self.file_name_from_model_path()
-        # display name
-        #display_name = filename.upper()[0] + filename[1:]
-
-        """
-        TO do
-        Add tags and model data after AI implementation
-        """
-        # tags
-        # tags = [] # IMPORTANT ADD THIS --------------------------------
-
-        #model data
-        # model_data = None # ADD THIS AFTER AI -------------------------
-
-        """
-        # gallery.add_model(model_id, filename, display_name, tags)
-        added = gallery.save_model_to_gallery(model_id, filename, display_name, tags, model_data)
-        if added == True:
-            self.gallery_button.setText("Added to Gallery") # giving user feedback
-        else:
-            self.gallery_button.setText("Failed to add to Gallery")
-        """
+        """When the gallery button is pressed - placeholder for future implementation"""
+        # TODO: Implement gallery save functionality when needed
+        self.gallery_button.setText("Feature coming soon")
         return
 
     def clear(self):
@@ -674,7 +684,7 @@ class SceneGeneratorPage(BasePage):
         self.scene_input = QTextEdit()
         self.scene_input.setPlaceholderText(
             "Example inputs:\n\n"
-            "• A forest with 5 trees and 3 rocks\n"
+            "• 5 trees and 3 rocks\n"
             "• A room with a table and two chairs\n"
             "• 3 soldiers and a knight standing guard\n"
             "• A desk with a lamp"
@@ -836,9 +846,7 @@ class SceneGeneratorPage(BasePage):
         # If a scene already exists, let SceneViewer re-render
         try:
             if getattr(self.scene_viewer, "_scene_nodes", []):
-                models_dir = self.scene_viewer._get_models_dir(
-                    use_testmodel=self.scene_viewer._is_forest_preset(self.scene_input.toPlainText())
-                )
+                models_dir = self.scene_viewer._get_models_dir()
                 debug_data = (
                     self.scene_viewer._layout_engine.debug_data
                     if self.scene_viewer.debug_mode
