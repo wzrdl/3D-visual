@@ -17,7 +17,6 @@ from sklearn.metrics.pairwise import cosine_similarity
 # for thumbnails
 import pyvista as pv
 
-from numpy import add
 from app.schema import (
     CREATE_TABLE_MODELS,
     CREATE_INDEX_DISPLAY_NAME,
