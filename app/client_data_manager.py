@@ -122,7 +122,22 @@ class ClientDataManager:
 
     def get_all_models(self) -> List[Dict]:
         """Get all models from backend and normalize."""
-        self._all_models = [self._prepare_model_record(m) for m in self.api.list_models()]
+        try:
+            self._all_models = [self._prepare_model_record(m) for m in self.api.list_models()]
+        except Exception as e:
+            print(f"Warning: Backend unavailable, using cached/backup data. Error: {e}")
+            if not self._all_models:
+                # Try to load from backup
+                backup_path = Path("app/assets/metadata.json.backup")
+                if backup_path.exists():
+                    try:
+                        with open(backup_path, "r", encoding="utf-8") as f:
+                            raw = json.load(f)
+                            if isinstance(raw, list):
+                                self._all_models = [self._prepare_model_record(m) for m in raw]
+                    except Exception as ex:
+                        print(f"Error loading backup metadata: {ex}")
+
         # Reset semantic caches so downstream (viewer/scene) can pick up new models
         self._semantic_embeddings = None
         self._encoder = None

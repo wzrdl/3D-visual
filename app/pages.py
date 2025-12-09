@@ -7,7 +7,7 @@ import asyncio
 import re
 from pathlib import Path
 
-from PyQt6.QtGui import QImage, QIcon, QMovie
+from PyQt6.QtGui import QImage, QIcon, QMovie, QPalette, QColor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLineEdit, QListWidget,
     QListWidgetItem, QPushButton, QTextEdit, QLabel, QHBoxLayout, QGridLayout, QListView
@@ -81,7 +81,7 @@ class GenerationWorker(QThread):
     async def _run_async(self):
         self.status_update.emit("Calling Meshy to generate 3D model (this may take 2-5 minutes)...")
         
-        # 1. Generate
+        # Call Meshy to generate the model
         result = await self.client.generate_model(self.prompt)
         if not result.get("success"):
             error = result.get("error") or "unknown error"
@@ -93,7 +93,7 @@ class GenerationWorker(QThread):
             self.error_occurred.emit("Meshy result does not contain an OBJ download URL.")
             return
 
-        # 2. Download
+        # Download the model from Meshy
         assets_dir = Path(__file__).parent.parent / "assets"
         models_dir = assets_dir / "models"
         models_dir.mkdir(parents=True, exist_ok=True)
@@ -108,19 +108,15 @@ class GenerationWorker(QThread):
             self.error_occurred.emit("Failed to download OBJ from Meshy.")
             return
 
-        # 3. Upload/Save
-        try:
-            file_bytes = local_path.read_bytes()
-        except OSError as e:
-            self.error_occurred.emit(f"Failed to read downloaded file: {e}")
-            return
+        # TODO : If possible, use the upload/save in 3D viewer page butthon
+        # Upload the model to the backend
+        file_bytes = local_path.read_bytes()
 
         display_name = self.prompt.strip() or "AI Generated Model"
         tags = ["ai", "meshy"]
 
         self.status_update.emit("Uploading model to backend...")
         try:
-            # Note: This calls requests/httpx synchronously usually, which is fine in a worker thread
             resp = self.data_manager.api.upload_model(
                 name=display_name,
                 tags=tags,
@@ -150,7 +146,7 @@ class GalleryPage(BasePage):
     
     def setup_ui(self):
         """Put together the search bar and model list"""
-        layout = QGridLayout(self) # was QVBox Layout
+        layout = QGridLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
 
@@ -176,7 +172,6 @@ class GalleryPage(BasePage):
         """Grab all models from the database and show them in the list"""
 
         # Currently we just get all models from the database and show them in the list
-        # TODO: We may find a better way to load models in the future
         self.all_models = self.data_manager.get_all_models()
         self.populate_model_list(self.all_models)
     
@@ -196,7 +191,7 @@ class GalleryPage(BasePage):
             item.setText(model['display_name'])
             item.setData(Qt.ItemDataRole.UserRole, model)
 
-            # model thumbnail - use cross-platform path
+            # model thumbnail - works on both windows and macos
             model_name = model['filename']
             project_root = Path(__file__).parent.parent
             thumbnail_path = project_root / "assets" / "thumbnails" / (Path(model_name).stem + ".png")
@@ -265,12 +260,7 @@ class AIGenerationPage(BasePage):
     """Page where you can type a description and have AI generate a 3D model"""
     
     def __init__(self, data_manager: ClientDataManager, gallery_page: GalleryPage | None = None, parent=None):
-        """Create the AI generation page
-
-        Args:
-            data_manager: client-side data manager used to talk to the backend
-            gallery_page: optional reference to gallery page so we can refresh it after upload
-        """
+        """Create the AI generation page"""
         self.data_manager = data_manager
         self.gallery_page = gallery_page
         self.meshy_client: MeshyClient | None = None
@@ -296,7 +286,7 @@ class AIGenerationPage(BasePage):
         self.prompt_input = QTextEdit()
         self.prompt_input.setPlaceholderText(
             "Describe the 3D model you want to generate...\n\n"
-            "Example: 'A red sports car' or 'A medieval castle with towers'"
+            "Example: 'A Formula one sports car' or 'A castle with towers'"
         )
         self.prompt_input.setMinimumHeight(200)
         layout.addWidget(self.prompt_input)
@@ -320,7 +310,7 @@ class AIGenerationPage(BasePage):
                 background-color: #3d8b40;
             }
         """)
-        # TODO: Connect to API client in Week 5
+    
         self.generate_button.clicked.connect(self.on_generate_clicked)
         layout.addWidget(self.generate_button)
 
@@ -354,7 +344,6 @@ class AIGenerationPage(BasePage):
             self.meshy_client = MeshyClient()
             return self.meshy_client
         except Exception as e:
-            # Most likely missing MESHY_API_KEY or network issues
             msg = f"Meshy client init failed: {e}"
             print(msg)
             self.status_label.setText(
@@ -444,25 +433,25 @@ class ViewerPage(BasePage):
                 background-color: #3d8b40;
             }
         """
-        # Download button -- copied from generate_button
-        self.download_button = QPushButton("Download")
-        self.download_button.setMinimumHeight(40)
-        self.download_button.setStyleSheet(button_style_template)
+        # Reset View button
+        self.reset_button = QPushButton("Reset View")
+        self.reset_button.setMinimumHeight(40)
+        self.reset_button.setStyleSheet(button_style_template)
 
         # Toggle Light button
         self.light_button = QPushButton("Light: On")
         self.light_button.setMinimumHeight(40)
         self.light_button.setStyleSheet(button_style_template)
 
-        # Toggle Gallery button
-        self.gallery_button = QPushButton("Add to Gallery")
-        self.gallery_button.setMinimumHeight(40)
-        self.gallery_button.setStyleSheet(button_style_template)
+        # Wireframe button
+        self.wireframe_button = QPushButton("Wireframe: Off")
+        self.wireframe_button.setMinimumHeight(40)
+        self.wireframe_button.setStyleSheet(button_style_template)
 
         # combining the buttons in a layout
-        button_layout.addWidget(self.download_button)
+        button_layout.addWidget(self.reset_button)
         button_layout.addWidget(self.light_button)
-        button_layout.addWidget(self.gallery_button)
+        button_layout.addWidget(self.wireframe_button)
 
         # making a widget hold the layout so we can nest layouts
         button_layout_widget = QWidget(self)
@@ -483,9 +472,9 @@ class ViewerPage(BasePage):
         layout.addWidget(button_layout_widget) # adding the top row of buttons
         layout.addWidget(self.viewer, stretch=1)
 
-        self.download_button.clicked.connect(self.clicked_download_button)
+        self.reset_button.clicked.connect(self.clicked_reset_button)
         self.light_button.clicked.connect(self.toggle_light_button)
-        self.gallery_button.clicked.connect(self.clicked_gallery_button)
+        self.wireframe_button.clicked.connect(self.toggle_wireframe_button)
     
     def load_model(self, model_path: str):
         """Load a model file and show it in the viewer"""
@@ -520,59 +509,67 @@ class ViewerPage(BasePage):
             camera_pos = (cx - camera_dist, cy + camera_height, cz + camera_dist)
             # Use +Y as the up direction to keep the model upright in the view
             self.viewer.camera_position = [camera_pos, (cx, cy, cz), (0, 1, 0)]
+            
+            # Store initial camera position for reset
+            self.initial_camera_pos = [camera_pos, (cx, cy, cz), (0, 1, 0)]
 
             print(f"Loaded model: {model_path}")
         except Exception as e:
             print(f"Error loading model: {e}")
 
         # resetting button text upon new model loading
-        self.download_button.setText("Download")
-        self.gallery_button.setText("Add to Gallery")
+        self.wireframe_button.setText("Wireframe: Off")
         self.light_button.setText("Light: On")
+        # Reset internal states
+        self.is_wireframe = False
 
-    # makes the file and display name from the model path
-    def file_name_from_model_path(self):
-        """ takes the model path and gets the [name].obj from it """
+    def clicked_reset_button(self):
+        """Reset camera view"""
+        if self.viewer:
+            if hasattr(self, 'initial_camera_pos') and self.initial_camera_pos:
+                self.viewer.camera_position = self.initial_camera_pos
+            else:
+                self.viewer.reset_camera()
 
-        if self.model_path != None:
-            file_name = self.model_path.split('/')[-1]
-            return file_name
-        else:
-            return None
-
-    # function for the next button click
-    def file_name_exists(self, file_name):
-        """ changes the filename so that it does not produce errors
-            It does so by checking the last value for if it is a number or not """
-
-        if file_name[-5].isdigit() == True:
-            number = int(file_name[-5]) + 1
-            string_number = str(number)
-            file_name = file_name[:-5] + string_number + file_name[-4:]
-        else:
-            file_name = file_name[:-4] + "1" + file_name[-4:]
-
-        return file_name
-
-        # for buttons
-    def clicked_download_button(self):
-        """When the download button is pressed"""
-        print("download clicked")
-        self.download_button.setText("File Downloaded")
-        file_name = self.file_name_from_model_path()
-
-        download_path = pathlib.Path.home() / 'Downloads' # works for windows computer
-
-        if os.path.exists(str(download_path / file_name)):
-            file_name = self.file_name_exists(file_name)
-
-        shutil.copyfile(self.model_path, file_name)
-        shutil.move(file_name, download_path)
-
-        return
+    def toggle_wireframe_button(self):
+        """Toggle wireframe mode"""
+        if not self.viewer:
+            return
+            
+        if not hasattr(self, 'is_wireframe'):
+            self.is_wireframe = False
+            
+        self.is_wireframe = not self.is_wireframe
+        
+        # Iterate over all actors in the renderer and toggle representation
+        try:
+            actors = self.viewer.renderer.actors
+            for actor in actors.values():
+                if hasattr(actor, 'GetProperty'):
+                    prop = actor.GetProperty()
+                    if self.is_wireframe:
+                        prop.SetRepresentationToWireframe()
+                    else:
+                        prop.SetRepresentationToSurface()
+            
+            # Force re-render
+            self.viewer.render()
+            
+            self.wireframe_button.setText("Wireframe: On" if self.is_wireframe else "Wireframe: Off")
+        except Exception as e:
+            print(f"Error toggling wireframe: {e}")
 
     def toggle_light_button(self):
         """Toggles the light on or off"""
+        # Ensure self.light exists before accessing it
+        # If the user clicks the light button before the model, which will lead to an error
+        if not hasattr(self, 'light') or self.light is None:
+             # Try to create it if we have a viewer
+            if self.viewer:
+                self.light = ThreeDViewer.setup_light()
+                self.viewer.add_light(self.light)
+            else:
+                return
 
         if self.light.on:
             self.light.switch_off()
@@ -580,12 +577,6 @@ class ViewerPage(BasePage):
         else:
             self.light.switch_on()
             self.light_button.setText("Light: On")
-        return
-
-    def clicked_gallery_button(self):
-        """When the gallery button is pressed - placeholder for future implementation"""
-        # TODO: Implement gallery save functionality when needed
-        self.gallery_button.setText("Feature coming soon")
         return
 
     def clear(self):
@@ -721,6 +712,12 @@ class SceneGeneratorPage(BasePage):
         """
 
         self.scene_input.setMinimumHeight(150)
+        # Ensure readable text/placeholder on macOS (dark/light)
+        palette = self.scene_input.palette()
+        palette.setColor(QPalette.ColorRole.Text, QColor("#111111"))
+        palette.setColor(QPalette.ColorRole.Base, QColor("#fafafa"))
+        palette.setColor(QPalette.ColorRole.PlaceholderText, QColor("#666666"))
+        self.scene_input.setPalette(palette)
         self.scene_input.setStyleSheet("""
             QTextEdit {
                 border: 1px solid #ccc;
@@ -729,10 +726,14 @@ class SceneGeneratorPage(BasePage):
                 font-size: 13px;
                 color: #000000;
                 background-color: #fafafa;
+                color: #111111;
+                selection-background-color: #cce5ff;
+                selection-color: #111111;
             }
             QTextEdit:focus {
                 border-color: #2196F3;
                 background-color: white;
+                color: #111111;
             }
         """)
         input_layout.addWidget(self.scene_input)

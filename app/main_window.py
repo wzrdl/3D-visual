@@ -11,7 +11,7 @@ from PyQt6.QtGui import QCloseEvent
 from app.client_data_manager import ClientDataManager
 from app.pages import GalleryPage, AIGenerationPage, ViewerPage, SceneGeneratorPage
 
-# Suppress VTK warnings during cleanup
+# Don't show VTK warnings during cleanup 
 os.environ['VTK_SILENCE_GET_VOID_POINTER_WARNINGS'] = '1'
 # 0 means no logging, 9 means all logging
 os.environ['VTK_LOGGING_LEVEL'] = 'OFF'

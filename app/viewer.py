@@ -23,7 +23,8 @@ from pyvistaqt import QtInteractor
 def suppress_vtk_warnings():
     """
     Temporarily silence VTK/OpenGL warnings that are printed to stderr,
-    e.g. wglMakeCurrent errors on Windows during off‑screen rendering.
+    When using windows, it will show a lot of warnings that are not important,
+    so we suppress them.
     """
     # Try to use VTK's own silence mechanism
     try:
@@ -45,12 +46,11 @@ def suppress_vtk_warnings():
 
 
 class ThreeDViewer(QtInteractor):
-    """3D model viewer widget"""
+    """3D model viewer widget, inherits from QtInteractor"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setup_renderer()  # calls the function to set up renderer settings
-        # QtInteractor IS a plotter, so we use self directly for plotter operations
+        self.setup_renderer()
         self.clear()  # clears everything
 
     def setup_renderer(self):
@@ -62,31 +62,20 @@ class ThreeDViewer(QtInteractor):
     @staticmethod
     def load_model(file_path: str) -> pv.PolyData:
         """load a 3D model from file path and return the mesh"""
-        print("reading file path", file_path)
-        # Let PyVista/VTK decide which reader to use based on extension.
+        #print("reading file path", file_path)
         return pv.read(file_path)
 
     @staticmethod
     def ensure_polydata(mesh: pv.DataSet) -> pv.PolyData:
         """
-        Ensure a PolyData is returned (handles MultiBlock by merging/extracting).
+        Ensure a PolyData is returned.
         """
-        if isinstance(mesh, pv.MultiBlock):
-            try:
-                merged = pv.merge_blocks(mesh)
-                return merged.extract_geometry()
-            except Exception:
-                # Fallback: pick the first usable geometry block
-                for block in mesh:
-                    if block is None:
-                        continue
-                    try:
-                        return block.extract_geometry()
-                    except Exception:
-                        continue
-                return pv.PolyData()
         if isinstance(mesh, pv.PolyData):
             return mesh
+            
+        if mesh is None:
+            return pv.PolyData()
+
         try:
             return mesh.extract_geometry()
         except Exception:
@@ -122,6 +111,8 @@ class ThreeDViewer(QtInteractor):
             
         return norm_mesh
 
+
+    # TODO: If possible, change the light setup
     @staticmethod
     def setup_light():
         """Create a light that shines straight down from above the model."""
@@ -158,7 +149,7 @@ class ThreeDViewer(QtInteractor):
         thumbnails_dir.mkdir(parents=True, exist_ok=True)
         thumbnail_path = thumbnails_dir / file_name
 
-        # Position camera similar to main viewer: upper-left diagonal
+        # Position camera : upper-left diagonal
         bounds = mesh.bounds
         center = mesh.center
         extent = max(bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4], 1.0)
@@ -178,7 +169,6 @@ class ThreeDViewer(QtInteractor):
     def clear(self):
         """clear all models from the viewer"""
         # Clear all meshes from the plotter
-        # Since QtInteractor IS a plotter, we use self directly
         super().clear()
 
 
