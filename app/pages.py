@@ -375,6 +375,8 @@ class AIGenerationPage(BasePage):
         self.worker.finished_success.connect(self.on_generation_success)
         self.worker.start()
 
+        # rotating gif 
+
     def on_generation_error(self, msg: str):
         self.status_label.setText(f"Error: {msg}")
         self._reset_ui()
@@ -685,10 +687,28 @@ class SceneGeneratorPage(BasePage):
         self.scene_input.setPlaceholderText(
             "Example inputs:\n\n"
             "• 5 trees and 3 rocks\n"
-            "• A room with a table and two chairs\n"
             "• 3 soldiers and a knight standing guard\n"
-            "• A desk with a lamp"
         )
+        """
+        Removed from above as they dont work
+        "• A desk with a lamp"
+        "• A room with a table and two chairs\n"
+        
+        Possible examples 
+        "• a witch is surrounded by a phoenix, 4 doberman and a cow?"
+        "• a main coon and a parakeet meet by a fountain"
+        "• three rabbits and a ragdoll find an elf by a tree"
+        "• a bear, a snake and some jellyfish discuss letting a hadgehog into their group"
+        "• a police car is chasing a ferrari, but a triceratops is in their way"
+        "• there is a ninja, a pirate and a cheetah playing musical chairs with two chairs
+        "• a lizard and a pitbull are in the zoo with five giraffe and three deer"
+        "• a samurai and a skeleton fight"
+        "• a squirrel is a by a christmas tree feeling christmas spirit" # not fully functioning
+        "• a dolphin and a goat look at a gpu, wondering what it is"
+        "• a cube, two octahedron and a cone  consider stealing a ferrari"
+        "• 10 scorpion sit by the sun"
+        """
+
         self.scene_input.setMinimumHeight(150)
         self.scene_input.setStyleSheet("""
             QTextEdit {
@@ -696,6 +716,7 @@ class SceneGeneratorPage(BasePage):
                 border-radius: 6px;
                 padding: 10px;
                 font-size: 13px;
+                color: #000000;
                 background-color: #fafafa;
             }
             QTextEdit:focus {
