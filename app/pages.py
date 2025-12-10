@@ -108,12 +108,13 @@ class GenerationWorker(QThread):
             self.error_occurred.emit("Failed to download OBJ from Meshy.")
             return
 
-        # TODO : If possible, use the upload/save in 3D viewer page butthon
+        # Now we have change the botton in the 3D viewer page to save the model to the backend, but it is not working yet.
         # Upload the model to the backend
         file_bytes = local_path.read_bytes()
 
         display_name = self.prompt.strip() or "AI Generated Model"
         tags = ["ai", "meshy"]
+        # TODO : This tag need to be changed, but I don't know what to put there.
 
         self.status_update.emit("Uploading model to backend...")
         try:
@@ -186,7 +187,6 @@ class GalleryPage(BasePage):
         self.model_list.setViewMode(QListWidget.ViewMode.IconMode)
 
         for model in models:
-            # model name
             item = QListWidgetItem()
             item.setText(model['display_name'])
             item.setData(Qt.ItemDataRole.UserRole, model)
@@ -671,6 +671,7 @@ class SceneGeneratorPage(BasePage):
         # Prompt the user to enter from the example below
         self.scene_input.setPlaceholderText(
             "Example inputs:\n\n"
+            "• A forest\n"
             "• 5 trees and 3 rocks\n"
             "• 3 soldiers and a knight standing guard\n"
         )
@@ -761,7 +762,7 @@ class SceneGeneratorPage(BasePage):
         """)
         debug_layout = QVBoxLayout(debug_group)
         
-        self.debug_checkbox = QCheckBox("Show debug info (AABB boxes & parent-child lines)")
+        self.debug_checkbox = QCheckBox("Check to view iteration changes (AABB boxes)")
         self.debug_checkbox.setStyleSheet("color: #555; padding: 5px;")
         self.debug_checkbox.stateChanged.connect(self.on_debug_toggled)
         debug_layout.addWidget(self.debug_checkbox)

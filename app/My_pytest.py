@@ -147,3 +147,91 @@ def test_cosine_similarity_basic():
     embeddings = model.encode(["tree", "forest", "chair"], normalize_embeddings=True)
     scores = util.cos_sim(embeddings[0], embeddings[1:]).squeeze()  # shape (2,)
     assert float(scores[0]) > float(scores[1])
+
+
+"""
+Pytest #8
+Placement rule application on scene nodes
+"""
+from app.layout_engine import SceneNode, Transform
+
+
+def test_apply_placement_rules():
+    lg = LayoutEngine()
+
+    # Character: should zero out x/z rotation and ground on y=0
+    char_node = SceneNode(
+        model_id="m1",
+        instance_id="i1",
+        filename="f1",
+        display_name="Hero",
+        transform=Transform(position=np.array([0.0, 2.0, 0.0]), rotation=np.array([15.0, 30.0, 20.0]), scale=1.0),
+        bbox_size=np.array([1.0, 1.0, 1.0]),
+        placement_type="character",
+        children=[]
+    )
+
+    # Floating: should set y to [5, 15]
+    float_node = SceneNode(
+        model_id="m2",
+        instance_id="i2",
+        filename="f2",
+        display_name="Balloon",
+        transform=Transform(position=np.array([0.0, 0.0, 0.0]), rotation=np.array([0.0, 0.0, 0.0]), scale=1.0),
+        bbox_size=np.array([1.0, 1.0, 1.0]),
+        placement_type="floating",
+        children=[]
+    )
+
+    # Ground: should force y=0
+    ground_node = SceneNode(
+        model_id="m3",
+        instance_id="i3",
+        filename="f3",
+        display_name="Rock",
+        transform=Transform(position=np.array([0.0, 3.0, 0.0]), rotation=np.array([0.0, 0.0, 0.0]), scale=1.0),
+        bbox_size=np.array([1.0, 1.0, 1.0]),
+        placement_type="ground",
+        children=[]
+    )
+
+    lg._apply_placement_rules([char_node, float_node, ground_node])
+
+    # Character upright and grounded
+    assert char_node.transform.rotation[0] == 0
+    assert char_node.transform.rotation[2] == 0
+    assert char_node.transform.position[1] == 0
+
+    # Floating height in band
+    assert 5.0 <= float_node.transform.position[1] <= 15.0
+
+    # Ground node forced to ground
+    assert ground_node.transform.position[1] == 0
+
+
+"""
+Pytest #9
+Expand objects respects count and naming
+"""
+from app.scene_brain import SceneObject
+
+
+def test_expand_objects():
+    lg = LayoutEngine()
+    scene_objects = [
+        SceneObject(
+            model_id="tree01",
+            display_name="Tree",
+            filename="tree.glb",
+            count=2,
+            tags=["nature"],
+            placement_type="ground"
+        )
+    ]
+
+    expanded = lg._expand_objects(scene_objects)
+
+    # Expect two entries with suffixed names
+    assert len(expanded) == 2
+    names = {obj.display_name for obj in expanded}
+    assert "Tree_1" in names and "Tree_2" in names

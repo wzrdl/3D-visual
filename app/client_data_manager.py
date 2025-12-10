@@ -1,12 +1,13 @@
 """
 Client-side DataManager: acts as a thin cache in front of the FastAPI backend.
 
-Responsibilities:
 - Fetch model metadata and files from the FastAPI backend over HTTP
 - Temporarily cache downloaded 3D model files (e.g. `.obj`, `.glb`) under the local
   `assets/models/` directory
 - Provide a DataManager-like interface for the UI (get_all_models / search_models / get_model_path)
 - Allow the application to clear the local cache on exit
+
+This class is basically the copy of the DataManager class in the backend, but it is used for the client side.
 """
 
 from __future__ import annotations
@@ -15,8 +16,9 @@ import json
 import os
 import re
 import shutil
+import time
 from pathlib import Path
-from typing import List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional, Any, Tuple, Callable
 
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -31,7 +33,8 @@ class ClientDataManager:
         self,
         api_url: Optional[str] = None,
         assets_dir: Optional[str] = None,
-        load_without_test = True
+        load_without_test=True,
+        defer_initialization: bool = False,
     ):
         # API client (talks to FastAPI backend)
         self.api = BackendAPIClient(api_url=api_url)
@@ -51,7 +54,7 @@ class ClientDataManager:
         self.vector_database = None
 
         # Semantic search using sentence-transformers
-        self._stopwords: List[str] = self._load_stopwords()
+        self._stopwords: List[str] = []
         self._embedding_ids: List[str] = []
         self._model_lookup: Dict[str, Dict] = {}
         self._encoder = None
@@ -61,15 +64,73 @@ class ClientDataManager:
         self._failed_downloads: set[str] = set()
         self._failed_logged: set[str] = set()
 
-        if load_without_test:
-            # Attempt to prime cache from local backup for offline scenarios
-            meta_json_path = "app/assets/metadata.json.backup"
-            if os.path.exists(meta_json_path):
-                self.name_order, self.vector_database = self.concatenate_name_tags(meta_json_path)
-            # Build vector index from backend (best-effort)
-            self._init_vector_index()
+        # If not deferred, load everything immediately (old behavior)
+        if not defer_initialization and load_without_test:
+            self.initialize()
 
-    # metadata 
+    def initialize(self, progress_callback: Optional[Callable[[str], None]] = None):
+        """
+        Perform heavy initialization steps sequentially with timing and logging.
+        progress_callback: A function that takes a string message to update UI.
+        """
+
+        def log_step(msg: str):
+            print(f"[Init] {msg}")
+            if progress_callback:
+                progress_callback(msg)
+
+        total_start = time.time()
+
+        # Step 1: Load Stopwords
+        t0 = time.time()
+        log_step("Loading configuration and stopwords...")
+        self._stopwords = self._load_stopwords()
+        print(f"   -> Stopwords loaded in {time.time() - t0:.3f}s")
+
+        # Step 2: Fetch Models (Network IO)
+        t0 = time.time()
+        log_step("Connecting to backend and fetching model list...")
+        try:
+            self._all_models = [self._prepare_model_record(m) for m in self.api.list_models()]
+        except Exception as e:
+            print(f"   -> Warning: Backend fetch failed ({e}). Trying backup...")
+            # Fallback logic could go here
+        # Build lookup
+        self._model_lookup = {m["id"]: m for m in self._all_models}
+        print(f"   -> Fetched {len(self._all_models)} models in {time.time() - t0:.3f}s")
+
+        # Step 3: Backup/Legacy Cache (Fast)
+        t0 = time.time()
+        meta_json_path = "app/assets/metadata.json.backup"
+        if os.path.exists(meta_json_path):
+            self.name_order, self.vector_database = self.concatenate_name_tags(meta_json_path)
+        print(f"   -> Backup metadata check done in {time.time() - t0:.3f}s")
+
+        # Step 4: AI Model Loading
+        t0 = time.time()
+        log_step("Loading AI Semantic Search Engine (This is heavy)...")
+        corpus, ids = self._build_vector_corpus()
+        if corpus:
+            self._embedding_ids = ids
+            try:
+                from sentence_transformers import SentenceTransformer
+
+                log_step("Loading Neural Network (sentence-transformers)...")
+                model = SentenceTransformer(self._semantic_model_name)
+
+                log_step("Encoding model library...")
+                texts = [self._normalize_text(self._model_lookup[mid]["display_name"]) for mid in self._embedding_ids]
+                self._semantic_embeddings = np.array(model.encode(texts, normalize_embeddings=True))
+                self._semantic_ids = list(self._embedding_ids)
+                self._encoder = model
+            except Exception as e:
+                print(f"   -> Failed to load AI model: {e}")
+
+        print(f"   -> AI Engine loaded in {time.time() - t0:.3f}s")
+
+        log_step("Initialization complete!")
+        print(f"Total initialization time: {time.time() - total_start:.3f}s")
+
 
     def _load_stopwords(self) -> List[str]:
         """Load optional stopwords list from assets/stopwords.txt"""

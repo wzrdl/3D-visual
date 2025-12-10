@@ -38,7 +38,7 @@ class SceneNode:
     filename: str
     display_name: str
     transform: Transform
-    bbox_size: np.ndarray  # Bounding box size [length, width, height]
+    bbox_size: np.ndarray  # Bounding box size [length, width, height], this is used for collision detection
     placement_type: str
     children: List['SceneNode'] = field(default_factory=list)
     
@@ -61,8 +61,8 @@ class SceneNode:
 class LayoutEngine:
     """
     Layout engine that implements automatic 3D scene layout algorithms.
-
-    Physical intuition:Treat each object as a charged particle, and repulsion prevents mesh intersection, and attraction keeps objects inside the view frustum
+    Physical intuition:Treat each object as a charged particle, and repulsion prevents mesh intersection, 
+    and attraction keeps objects inside the view frustum
     """
     
     # Force-directed algorithm parameters
@@ -141,10 +141,10 @@ class LayoutEngine:
         
         # Storage for debug visualization artifacts
         self.debug_data: Dict[str, Any] = {
-            'aabb_boxes': [],      # Axis-aligned bounding boxes
-            'parent_child_lines': [],  # Parent-child connection lines
-            'force_vectors': [],    # Force vectors (optional)
-            'iteration_history': [],  # Iteration history (for animation)
+            'aabb_boxes': [],      
+            'parent_child_lines': [],  
+            'force_vectors': [],    
+            'iteration_history': [],  
         }
     
     def layout_scene(
@@ -237,7 +237,7 @@ class LayoutEngine:
 
             is_nature = any(k in name for k in ['tree', 'rock', 'stone', 'bush', 'wall', 'fence'])
 
-            is_companion = any(k in name for k in ['chair', 'person', 'dog', 'bench'])
+            #is_companion = any(k in name for k in ['chair', 'person', 'dog', 'bench'])
 
             
             if is_hero:
@@ -361,29 +361,22 @@ class LayoutEngine:
         
         return nodes
     
-    def _apply_anchor_constraints(
-        self,
-        parent_nodes: List[SceneNode],
-        child_objects: List[SceneObject],
-        model_dimensions: Optional[Dict[str, np.ndarray]] = None
-    ) -> List[SceneNode]:
-        """
-        This function is used to apply the anchor constraints to the scene.
-        (Currently disabled/unused)
-        """
-        return []
+    # def _apply_anchor_constraints(
+    #     self,
+    #     parent_nodes: List[SceneNode],
+    #     child_objects: List[SceneObject],
+    #     model_dimensions: Optional[Dict[str, np.ndarray]] = None
+    # ) -> List[SceneNode]:
+    #     """
+    #     This function is used to apply the anchor constraints to the scene.
+    #     (Currently disabled/unused)
+    #     """
+    #     return []
     
     def _euler_to_rotation_matrix(self, euler_angles: np.ndarray) -> np.ndarray:
         """
-        Convert Euler angles to rotation matrix (Y-X-Z order, degrees).
-
-        Mainly used for Y-axis rotation (vertical axis).
-
-        Args:
-            euler_angles: [rx, ry, rz] in degrees
-
-        Returns:
-            3x3 rotation matrix
+        Convert Euler angles to rotation matrix (Y-X-Z order, degrees). I supposed this will be used for some rotation of the object.
+        However, we don't use this function for the current data.
         """
         rx, ry, rz = np.radians(euler_angles)
         
@@ -524,4 +517,3 @@ class LayoutEngine:
             collect(node)
         
         return result
-

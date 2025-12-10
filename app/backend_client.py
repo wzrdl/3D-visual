@@ -56,6 +56,9 @@ class BackendAPIClient:
         filename: str,
         model_id: Optional[str] = None,
     ) -> Dict[str, Any]:
+        """
+        This function is used to upload the model to the backend.
+        """
         data = {
             "name": name,
             "tags": json.dumps(tags),
