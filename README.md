@@ -62,7 +62,7 @@ pip install -r requirements.txt
 
 The application requires specific environment variables to function correctly. You can set them in your terminal or create a `.env` file in the project root.
 
-**Step A: Create a `.env` file (Recommended)**
+**Step A: Create a `.env` file for MeshyAI**
 
 1.  Create a file named `.env` in the root directory (`3D-visual/`).
 2.  Add the following content (replace with your actual keys):
@@ -72,7 +72,7 @@ The application requires specific environment variables to function correctly. Y
     MESHY_API_KEY=msy_your_api_key_here
     ```
 
-**Step B: Set Environment Variables Manually**
+**Step B: Set Backend Environment Variables Manually**
 
 *Windows (PowerShell):*
 ```powershell
