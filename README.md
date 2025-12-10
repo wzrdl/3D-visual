@@ -35,7 +35,7 @@ For backend details and deployment instructions, please refer to [server/README.
 
 ### 1. Prerequisites
 
-- Python 3.9 or higher
+- Python 3.12 or higher
 - A [Meshy API Key](https://meshy.ai/) (for AI 3D model generation)
 
 ### 2. Create a Virtual Environment
@@ -62,34 +62,26 @@ pip install -r requirements.txt
 
 The application requires specific environment variables to function correctly. You can set them in your terminal or create a `.env` file in the project root.
 
-**Option A: Create a `.env` file (Recommended)**
+**Step A: Create a `.env` file for MeshyAI**
 
 1.  Create a file named `.env` in the root directory (`3D-visual/`).
 2.  Add the following content (replace with your actual keys):
 
     ```ini
-    # URL of the deployed backend service
-    BACKEND_API_URL="https://d3-visual-backend-588296003116.us-east1.run.app"
-
     # Your Meshy API Key for Text-to-3D generation
     MESHY_API_KEY=msy_your_api_key_here
-
-    # (Optional) Meshy AI Model version: 'meshy-4', 'meshy-5' (default), or 'latest'
-    MESHY_TEXT3D_MODEL="meshy-5"
     ```
 
-**Option B: Set Environment Variables Manually**
+**Step B: Set Backend Environment Variables Manually**
 
 *Windows (PowerShell):*
 ```powershell
 $env:BACKEND_API_URL="https://d3-visual-backend-588296003116.us-east1.run.app"
-$env:MESHY_API_KEY="your_meshy_key"
 ```
 
 *macOS / Linux:*
 ```bash
 export BACKEND_API_URL="https://d3-visual-backend-588296003116.us-east1.run.app"
-export MESHY_API_KEY="your_meshy_key"
 ```
 
 ### 5. Run the Application
