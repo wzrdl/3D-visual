@@ -671,6 +671,7 @@ class SceneGeneratorPage(BasePage):
         # Prompt the user to enter from the example below
         self.scene_input.setPlaceholderText(
             "Example inputs:\n\n"
+            "• A forest\n"
             "• 5 trees and 3 rocks\n"
             "• 3 soldiers and a knight standing guard\n"
         )
@@ -761,7 +762,7 @@ class SceneGeneratorPage(BasePage):
         """)
         debug_layout = QVBoxLayout(debug_group)
         
-        self.debug_checkbox = QCheckBox("Show debug info (AABB boxes & parent-child lines)")
+        self.debug_checkbox = QCheckBox("Check to view iteration changes (AABB boxes)")
         self.debug_checkbox.setStyleSheet("color: #555; padding: 5px;")
         self.debug_checkbox.stateChanged.connect(self.on_debug_toggled)
         debug_layout.addWidget(self.debug_checkbox)

@@ -376,7 +376,7 @@ class LayoutEngine:
     def _euler_to_rotation_matrix(self, euler_angles: np.ndarray) -> np.ndarray:
         """
         Convert Euler angles to rotation matrix (Y-X-Z order, degrees). I supposed this will be used for some rotation of the object.
-        However, 
+        However, we don't use this function for the current data.
         """
         rx, ry, rz = np.radians(euler_angles)
         
