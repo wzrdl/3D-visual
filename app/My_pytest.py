@@ -13,7 +13,6 @@ By the end, it will delete the thumbnail to not add clutter
 """
 from app.viewer import ThreeDViewer
 
-# WORKS
 #@pytest.mark.skip(reason="successful")
 def test_generate_thumbnail():
     app = QApplication(sys.argv)
@@ -33,91 +32,79 @@ def test_generate_thumbnail():
 
 """
 Pytest #2
-Passing the add_model function something that does exist
+tests the function in the layout_engine file that focuses on model rotation
 """
 
-from app.data_manager import DataManager
+import numpy as np
+from app.layout_engine import LayoutEngine
 
-# WORKS
-#@pytest.mark.skip(reason="successful")
-@pytest.mark.skip(reason ="Due to edits in code, the logic no longer works")
-def test_add_model_exists():
-    dm = DataManager()
+#@pytest.mark.skip(reason ="successful")
+def test_model_rotation():
 
-    id_number = "model_001"
-    file_name = "cube.obj"
-    name = "Cube"
-    tags = [
-      "geometric",
-      "primitive",
-      "box",
-      "square"
-    ]
+    temp_position = np.array([0, 0, 0])
 
-    assert dm.add_model(id_number, file_name, name, tags) == False
+    lg = LayoutEngine() # object for the class
 
+    natural_model = lg._calculate_facing_rotation(temp_position, "tree")
+    unnatural_model = lg._calculate_facing_rotation(temp_position, "ninja")
+
+    assert unnatural_model < natural_model
+    assert natural_model > 0
 """
 Pytest #3
 Vector Database logic works correctly
+This pytest had to use the mock module in order to skip the api and cloud calls
+A lot of values were set to make it work, but this test is to test the logic 
 """
 
 from sentence_transformers import SentenceTransformer, util
 import json
 from app.client_data_manager import ClientDataManager
+from unittest.mock import MagicMock, patch  # as with SentenceTransformer it takes a while to load
 
-#@pytest.mark.skip(reason="successful")
-@pytest.mark.skip(reason ="Due to edits in code, the logic no longer works")
-def test_vector_database():
+# loading times are still very long, so trying to further reduce it
+#@patch('app.client_data_manager.SentenceTransformer') # first attempt -- ignore st in .py
+#@patch('sentence_transformers.SentenceTransformer') # second attempt -- ignore all st
+@patch.object(ClientDataManager, '__init__', return_value=None)
+def test_vector_database(mock_init):
+    # need to "catch" the value from patch ^^
+    query = "a forest"
+    mock_model = MagicMock() # to replace sentence transformer
+    # we need to manually set a few member variables to continue
 
-    # making temporary meta.json file to test with
-    temp_data = [
-        {"name": "tree", "tags": ["leaves", "natural", "wood", "green"]},
-        {"name": "flower", "tags": ["petals", "natural", "colorful"]},
-        {"name": "chair", "tags": ["wood", "furniture", "legs"]},
-        {"name": "keyboard", "tags": ["mechanical", "silicon", "keys"]}
-    ]
+    # the encoder -- to avoid long loading times we are using mock
+    #model = SentenceTransformer(cdm._semantic_model_name)
+    mock_model.encode.return_value = np.array([[1.0, 0.0, 1.0]])
 
-    temp_data_path = "assets/pytest assets/test_meta.json"
-    name_order = ["tree", "flower", "chair", "keyboard"]
+    cdm = ClientDataManager()  # actual object
+    cdm._encoder = mock_model
 
-    os.makedirs(os.path.dirname(temp_data_path), exist_ok=True)  # make sure it exists? if not will make
-    with open(temp_data_path, "w") as f:
-        json.dump(temp_data, f)
+    # temp database
+    cdm._semantic_embeddings = np.array( [
+        [0.9, 0, 0.9], # close to encoder value?
+        [0.0, 1.0, 0.0] # far from it
+    ])
 
-    # running function
-    cdm = ClientDataManager(load_without_test=False)
-    cdm.concatenate_name_tags(temp_data_path)
-    embedder = cdm.miniM_model  # to reduce the amount of __.__.__ we have
+    # IDs
+    cdm._semantic_ids = ["model_1", "model_2"] # arbitrary to lookup?
 
-    # testing test_word -- SBERT.net recommends using query for this
-    query = "forest"
-    query_embedding = embedder.encode_query(query)
+    # directory for the IDs to lookup information for
+    cdm._model_lookup = {
+        "model_1": {"name": "tree"},
+        "model_2": {"name": "ninja"}
+    }
 
-    # seeing the scores or calculations for the test
-    similarity_score = util.cos_sim(query_embedding, cdm.vector_database)
-    # makes it a 2D grid with the first [0] being the query and the second holding the
-    # different temp_data lines
+    results = cdm.semantic_search(query)
 
-    # find the closest matches
-    top_k = min(2, len(similarity_score))
-
-    scores, indices = torch.topk(similarity_score[0], k=top_k)
-
-    #print("Query: ", query)
-    for score, index in zip(scores, indices):
-        name = name_order[index]
-        best_score = score
-        #print(f"Filename: {filename}, (Score: {score:4f}) at index: {index}")
-
-    assert similarity_score[0][0] > similarity_score[0][1] # tree > flower
-    assert name == "tree"
-    assert best_score > 0.4
+    assert len(results) > 0
+    assert results[0]["model"]["name"] == "tree"
 
 from app.scene_brain import SceneBrain
 """
 Pytest #4 
 Keyword extraction from user input (updated to SceneBrain)
 """
+#@pytest.mark.skip(reason="successful")
 def test_user_input_keywords_extraction():
     sb = SceneBrain()
     extracted = sb._extract_objects_and_quantities("I want a tree and a flower")
@@ -130,6 +117,7 @@ def test_user_input_keywords_extraction():
 Pytest #5
 Placement type inference
 """
+#@pytest.mark.skip(reason="successful")
 def test_placement_type_inference():
     sb = SceneBrain()
     assert sb._get_placement_type("bird") == "floating"
@@ -140,6 +128,7 @@ def test_placement_type_inference():
 Pytest #6
 Quantity parsing with numbers and words
 """
+#@pytest.mark.skip(reason="successful")
 def test_extract_objects_and_quantities_counts():
     sb = SceneBrain()
     extracted = sb._extract_objects_and_quantities("3 trees and two chairs")
@@ -152,6 +141,7 @@ def test_extract_objects_and_quantities_counts():
 Pytest #7
 Cosine similarity sanity check (tree vs forest closer than chair)
 """
+#@pytest.mark.skip(reason="successful")
 def test_cosine_similarity_basic():
     model = SentenceTransformer("paraphrase-MiniLM-L3-v2")
     embeddings = model.encode(["tree", "forest", "chair"], normalize_embeddings=True)
