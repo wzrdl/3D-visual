@@ -1,12 +1,5 @@
 """
-SceneBrain - Semantic Analysis Module
-
-Handles NLP parsing and vector retrieval to map unstructured natural language
-to the local asset library using sentence-transformers + cosine similarity
-for semantic matching.
-
-Input: text string
-Output: target model IDs and quantity info
+This file is used to parse the user input and map it to the local asset library using sentence-transformers + cosine similarity
 """
 
 import re

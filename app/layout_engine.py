@@ -62,10 +62,7 @@ class LayoutEngine:
     """
     Layout engine that implements automatic 3D scene layout algorithms.
 
-    Physical intuition:
-    - Treat each object as a charged particle
-    - Repulsion prevents mesh intersection
-    - Attraction keeps objects inside the view frustum
+    Physical intuition:Treat each object as a charged particle, and repulsion prevents mesh intersection, and attraction keeps objects inside the view frustum
     """
     
     # Force-directed algorithm parameters
@@ -237,54 +234,41 @@ class LayoutEngine:
                 bbox = np.array(bbox)
 
             name = obj.display_name.lower()
-
-            # Identify the role of the object
-            # Hero: the core object (house, table, desk, campfire, car, fountain, bed) -> placed in the center (0,0)
+     
             is_hero = any(k in name for k in ['house', 'table', 'desk', 'campfire', 'car', 'fountain', 'bed'])
 
-            # Nature: the environmental background (tree, rock, stone, bush, wall, fence) -> placed in the outer circle
             is_nature = any(k in name for k in ['tree', 'rock', 'stone', 'bush', 'wall', 'fence'])
 
-            # Companion: the companion object (person, chair, dog, bench) -> placed in the middle circle
             is_companion = any(k in name for k in ['chair', 'person', 'dog', 'bench'])
 
-            # Calculate the position
+            
             if is_hero:
-                # This makes the scene have a "visual focus"
                 angle = random.uniform(0, 2 * math.pi)
                 radius = random.uniform(0.0, 1.5)
 
             elif is_nature:
-                # The environmental object is distributed in the outer circle
-                # If the object of this type (like Pine Tree) does not have a cluster center, it will be randomly assigned one
                 if obj.model_id not in cluster_bases:
                     cluster_bases[obj.model_id] = (random.uniform(0, 2*math.pi), random.uniform(5.0, 10.0))
 
                 base_angle, base_radius = cluster_bases[obj.model_id]
 
-                # Offset around the cluster center (Gaussian distribution)
-                angle = base_angle + random.uniform(-0.5, 0.5) # 弧度偏移
+                angle = base_angle + random.uniform(-0.5, 0.5)
                 radius = base_radius + random.uniform(-2.0, 2.0)
 
             else: # is_companion / default
-                # The other objects are uniformly distributed in the middle circle (2-5 meters)
                 angle = random.uniform(0, 2 * math.pi)
                 radius = random.uniform(2.0, 5.0)
 
-            # Set the coordinates
             positions[i] = np.array([
                 math.cos(angle) * radius,
                 0,
                 math.sin(angle) * radius
             ])
 
-            # Compute effective radius (half diagonal on XZ plane)
-            radii[i] = math.sqrt(bbox[0]**2 + bbox[2]**2) / 2 + 0.5  # Add safety padding
+            radii[i] = math.sqrt(bbox[0]**2 + bbox[2]**2) / 2 + 0.5
             
-            # Force the object to face the viewer or a random direction
             rotation_y = self._calculate_facing_rotation(positions[i], obj.display_name, method="auto")
 
-            # Create the scene node
             transform = Transform(
                 position=positions[i].copy(),
                 rotation=np.array([0.0, rotation_y, 0.0]),
@@ -303,30 +287,25 @@ class LayoutEngine:
             )
             nodes.append(node)
         
-        MAX_FORCE = 20.0  # Cap maximum force to prevent runaway speeds
-        MAX_VEL = 5.0     # Cap maximum velocity
+        MAX_FORCE = 20.0
+        MAX_VEL = 5.0
         
-        # Force-directed iterations
         for iteration in range(self.iterations):
             forces = np.zeros((n, 3))
-            
-            # Compute repulsion between objects
+
             for i in range(n):
                 for j in range(i + 1, n):
                     delta = positions[i] - positions[j]
-                    delta[1] = 0  # Ignore Y component
+                    delta[1] = 0
                     distance = np.linalg.norm(delta)
                     
-                    # Avoid divide-by-zero
                     if distance < 0.01:
                         distance = 0.01
                         delta = np.array([random.uniform(-1, 1), 0, random.uniform(-1, 1)])
                         delta = delta / np.linalg.norm(delta) * distance
                     
-                    # Collision distance threshold
                     collision_dist = (radii[i] + radii[j]) * 1.05
                     
-                    # Repulsion formula: softened version with force cap
                     if distance < collision_dist * 1.1:
                         force_direction = delta / distance
                         strength = self.repulsion_k / ((distance + 0.1) ** 2)
@@ -336,13 +315,11 @@ class LayoutEngine:
                         forces[i] += force
                         forces[j] -= force
 
-                    # Additional global gravity to prevent过度疏离
                     gravity_strength = 0.05
                     gravity_dir = delta / distance
                     forces[i] -= gravity_dir * gravity_strength
                     forces[j] += gravity_dir * gravity_strength
 
-                    # Pull objects with high embedding similarity
                     if normalized_vectors:
                         v_i = normalized_vectors.get(objects[i].model_id)
                         v_j = normalized_vectors.get(objects[j].model_id)
@@ -354,7 +331,6 @@ class LayoutEngine:
                                 forces[i] -= attract_force
                                 forces[j] += attract_force
             
-            # Compute attraction toward center
             for i in range(n):
                 dist_to_center = np.linalg.norm(positions[i])
                 if dist_to_center > 0.1:
@@ -362,31 +338,26 @@ class LayoutEngine:
                     center_force[1] = 0
                     forces[i] += center_force
             
-            # Update velocity and position
             velocities = velocities * self.DEFAULT_DAMPING + forces * self.DEFAULT_TIME_STEP
             
-            # Clamp velocity to prevent jumping outside in one step
             vel_norm = np.linalg.norm(velocities, axis=1, keepdims=True)
             velocities = np.where(vel_norm > MAX_VEL, velocities / vel_norm * MAX_VEL, velocities)
             positions += velocities * self.DEFAULT_TIME_STEP
             
-            # Keep inside scene bounds
             for i in range(n):
                 positions[i] = np.clip(
                     positions[i],
                     -self.DEFAULT_SCENE_BOUNDS,
                     self.DEFAULT_SCENE_BOUNDS
                 )
-                positions[i][1] = 0  # Force Y = 0
+                positions[i][1] = 0
             
-            # Record iteration history (for debug animation)
             self.debug_data['iteration_history'].append({
                 'iteration': iteration,
                 'positions': positions.copy().tolist(),
                 'total_energy': np.sum(velocities ** 2)
             })
         
-        # Update node positions
         for i, node in enumerate(nodes):
             node.transform.position = positions[i].copy()
         
@@ -447,16 +418,12 @@ class LayoutEngine:
     
     def _apply_placement_rules(self, nodes: List[SceneNode]):
         """
-        Apply placement_type rules.
-
-        Rules:
-        - ground: keep Y=0
-        - character: lock rotation_x/z = 0 (stay upright)
-        - floating: set pos_y = random(5, 10)
-        - prop: place on parent surface (simplified: keep current Y or default 0)
-
-        Args:
-            nodes: Scene nodes
+        Apply placement_type rules. Here we set the position and rotation of the objects based on the placement_type.
+        Based on the placement_type, we set the position and rotation of the objects.
+        For example, if the placement_type is 'character', we keep the character upright.
+        If the placement_type is 'floating', we set the position of the object to a random height within the band [5, 15].
+        If the placement_type is 'prop', we keep the current Y position.
+        If the placement_type is 'ground', we set the position of the object to Y=0.
         """
         def apply_rules(node: SceneNode):
             ptype = node.placement_type

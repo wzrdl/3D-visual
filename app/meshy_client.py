@@ -5,7 +5,7 @@ I refrence the official doc from here:
 https://docs.meshy.ai/en/api/text-to-3d
 
 Workflow we support here:
-First, Create a Text-to-3D preview task (`mode="preview"`) from a text prompt
+First, Create a Text-to-3D preview task (mode="preview") from a text prompt
 Second, Poll the task status until it finishes
 Third, Return the OBJ download URL when available
 """
@@ -112,28 +112,28 @@ class MeshyClient:
             raise RuntimeError(f"Unexpected response from Meshy API: {data}")
         return task_id
 
-    async def _create_refine_task(self, model_id: str) -> str:
-        """
-        Create a Text-to-3D refine task and return its task id.
-        """
-        payload = {
-            "mode": "refine",
-            "model_id": model_id,
-            "enable_pbr": True
-        }
-        resp = await self._client.post(
-            "/openapi/v2/text-to-3d",
-            headers=self._headers(),
-            json=payload,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    # async def _create_refine_task(self, model_id: str) -> str:
+    #     """
+    #     Create a Text-to-3D refine task and return its task id.
+    #     """
+    #     payload = {
+    #         "mode": "refine",
+    #         "model_id": model_id,
+    #         "enable_pbr": True
+    #     }
+    #     resp = await self._client.post(
+    #         "/openapi/v2/text-to-3d",
+    #         headers=self._headers(),
+    #         json=payload,
+    #     )
+    #     resp.raise_for_status()
+    #     data = resp.json()
 
-        # The task id is the response from the API
-        task_id = data.get("result")
-        if not isinstance(task_id, str):
-            raise RuntimeError(f"Unexpected response from Meshy API: {data}")
-        return task_id
+    #     # The task id is the response from the API
+    #     task_id = data.get("result")
+    #     if not isinstance(task_id, str):
+    #         raise RuntimeError(f"Unexpected response from Meshy API: {data}")
+    #     return task_id
 
     async def _get_task(self, task_id: str) -> Dict[str, Any]:
         """
@@ -175,69 +175,69 @@ class MeshyClient:
                 raise TimeoutError(f"Meshy task {task_id} timed out after {timeout} seconds")
 
             await asyncio.sleep(poll_interval)
-    async def refine_model(self, model_id: str) -> Dict[str, Any]:
-        """
-        This function will get the refined model from the API
+    # async def refine_model(self, model_id: str) -> Dict[str, Any]:
+    #     """
+    #     This function will get the refined model from the API
 
-        The date response looks like:
-        {
-            "id": str,
-            "model_urls": {
-                "glb": str,
-                "fbx": str,
-                "obj": str,
-                "mtl": str,
-                "usdz": str
-            },
-            "thumbnail_url": str,
-            "prompt": str,
-            "art_style": str,
-            "progress": int,
-            "started_at": int,
-            "created_at": int,
-            "finished_at": int,
-            "status": str,
-            "texture_urls": [
-                {
-                "base_color": str
-                }
-            ],
-            "preceding_tasks": int,
-            "task_error": {
-                "message": None | str
-            }
-        }
-        """
+    #     The date response looks like:
+    #     {
+    #         "id": str,
+    #         "model_urls": {
+    #             "glb": str,
+    #             "fbx": str,
+    #             "obj": str,
+    #             "mtl": str,
+    #             "usdz": str
+    #         },
+    #         "thumbnail_url": str,
+    #         "prompt": str,
+    #         "art_style": str,
+    #         "progress": int,
+    #         "started_at": int,
+    #         "created_at": int,
+    #         "finished_at": int,
+    #         "status": str,
+    #         "texture_urls": [
+    #             {
+    #             "base_color": str
+    #             }
+    #         ],
+    #         "preceding_tasks": int,
+    #         "task_error": {
+    #             "message": None | str
+    #         }
+    #     }
+    #     """
 
-        try: 
-            task_id = await self._create_refine_task(model_id)
-        except Exception as e:
-            return {
-                "success": False,
-                "task_id": None,
-                "model_id": model_id,
-                "task": None,
-                "error": str(e),
-            }
+    #     try: 
+    #         task_id = await self._create_refine_task(model_id)
+    #     except Exception as e:
+    #         return {
+    #             "success": False,
+    #             "task_id": None,
+    #             "model_id": model_id,
+    #             "task": None,
+    #             "error": str(e),
+    #         }
 
-        task = await self._wait_for_task(task_id)
-        if task.get("status") != "SUCCEEDED":
-            return {
-                "model_id": model_id,
-                "task_id": task_id,
-                "model_urls": None,
-                "task": task,
-                "error": f"Task finished with status={task.get('status')}",
-            }
-        return {
-            "task_id": task_id,
-            "model_id": model_id,
-            "model_urls": task.get("model_urls"),
-            "task": task,
-            "error": None,
-            "thumbnail_url": task.get("thumbnail_url"),
-            "texture_urls": task.get("texture_urls"),
-        }
+    #     task = await self._wait_for_task(task_id)
+    #     if task.get("status") != "SUCCEEDED":
+    #         return {
+    #             "model_id": model_id,
+    #             "task_id": task_id,
+    #             "model_urls": None,
+    #             "task": task,
+    #             "error": f"Task finished with status={task.get('status')}",
+    #         }
+    #     return {
+    #         "task_id": task_id,
+    #         "model_id": model_id,
+    #         "model_urls": task.get("model_urls"),
+    #         "task": task,
+    #         "error": None,
+    #         "thumbnail_url": task.get("thumbnail_url"),
+    #         "texture_urls": task.get("texture_urls"),
+    #     }
     async def generate_model(self, prompt: str) -> Dict[str, Any]:
         """
         The main function to generate the model
@@ -300,58 +300,58 @@ class MeshyClient:
         except Exception as e:
             print(f"[Meshy] Error downloading model from {url}: {e}")
             return False
-    async def download_refine_model(self, 
-                                    model_urls: Dict[str, Any], 
-                                    texture_urls: List[Dict[str, Any]], 
-                                    thumbnail_url: str, 
-                                    save_dir: str) -> bool:
-        """
-        Download all refined model files including textures and thumbnail.
+    # async def download_refine_model(self, 
+    #                                 model_urls: Dict[str, Any], 
+    #                                 texture_urls: List[Dict[str, Any]], 
+    #                                 thumbnail_url: str, 
+    #                                 save_dir: str) -> bool:
+    #     """
+    #     Download all refined model files including textures and thumbnail.
         
-        Args:
-            model_urls: Dict with format URLs (glb, fbx, obj, etc.)
-            texture_urls: List of texture dicts with base_color URLs
-            thumbnail_url: Thumbnail image URL
-            save_dir: Directory to save all downloaded files
+    #     Args:
+    #         model_urls: Dict with format URLs (glb, fbx, obj, etc.)
+    #         texture_urls: List of texture dicts with base_color URLs
+    #         thumbnail_url: Thumbnail image URL
+    #         save_dir: Directory to save all downloaded files
         
-        Returns:
-            True if all downloads succeeded, False otherwise
-        """
-        from pathlib import Path
-        save_path = Path(save_dir)
-        save_path.mkdir(parents=True, exist_ok=True)
+    #     Returns:
+    #         True if all downloads succeeded, False otherwise
+    #     """
+    #     from pathlib import Path
+    #     save_path = Path(save_dir)
+    #     save_path.mkdir(parents=True, exist_ok=True)
         
-        # Collect all URLs to download
-        all_urls: List[tuple] = []
+    #     # Collect all URLs to download
+    #     all_urls: List[tuple] = []
         
-        # Add model format URLs
-        for fmt, url in model_urls.items():
-            if url:
-                all_urls.append((url, f"model.{fmt}"))
+    #     # Add model format URLs
+    #     for fmt, url in model_urls.items():
+    #         if url:
+    #             all_urls.append((url, f"model.{fmt}"))
         
-        # Add texture URLs
-        for i, tex in enumerate(texture_urls or []):
-            if isinstance(tex, dict):
-                base_color = tex.get("base_color")
-                if base_color:
-                    all_urls.append((base_color, f"texture_{i}.png"))
+    #     # Add texture URLs
+    #     for i, tex in enumerate(texture_urls or []):
+    #         if isinstance(tex, dict):
+    #             base_color = tex.get("base_color")
+    #             if base_color:
+    #                 all_urls.append((base_color, f"texture_{i}.png"))
         
-        # Add thumbnail
-        if thumbnail_url:
-            all_urls.append((thumbnail_url, "thumbnail.png"))
+    #     # Add thumbnail
+    #     if thumbnail_url:
+    #         all_urls.append((thumbnail_url, "thumbnail.png"))
         
-        try:
-            for url, filename in all_urls:
-                file_path = save_path / filename
-                async with self._client.stream("GET", url) as resp:
-                    resp.raise_for_status()
-                    with open(file_path, "wb") as f:
-                        async for chunk in resp.aiter_bytes():
-                            f.write(chunk)
-            return True
-        except Exception as e:
-            print(f"[Meshy] Error downloading refined model: {e}")
-            return False
+    #     try:
+    #         for url, filename in all_urls:
+    #             file_path = save_path / filename
+    #             async with self._client.stream("GET", url) as resp:
+    #                 resp.raise_for_status()
+    #                 with open(file_path, "wb") as f:
+    #                     async for chunk in resp.aiter_bytes():
+    #                         f.write(chunk)
+    #         return True
+    #     except Exception as e:
+    #         print(f"[Meshy] Error downloading refined model: {e}")
+    #         return False
 
     async def close(self) -> None:
         """Close HTTP client."""
