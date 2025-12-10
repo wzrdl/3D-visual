@@ -7,7 +7,7 @@ import asyncio
 import re
 from pathlib import Path
 
-from PyQt6.QtGui import QImage, QIcon, QPalette, QColor
+from PyQt6.QtGui import QImage, QIcon, QMovie, QPalette, QColor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QLineEdit, QListWidget,
     QListWidgetItem, QPushButton, QTextEdit, QLabel, QHBoxLayout, QGridLayout, QListView
@@ -319,6 +319,16 @@ class AIGenerationPage(BasePage):
         self.status_label.setStyleSheet("color: #444; margin-top: 8px;")
         layout.addWidget(self.status_label)
 
+        # making a gif
+        self.gif_label = QLabel() # to contain the movie
+
+        self.gif_movie = QMovie("assets/models/fysm.gif")
+        # to change the gif, just change this path
+        self.gif_movie.setScaledSize(QSize(480, 480))
+
+        self.gif_label.setMovie(self.gif_movie)
+        layout.addWidget(self.gif_label, 0, Qt.AlignCenter)
+
         # Add stretch to push content to top
         layout.addStretch()
     
@@ -344,6 +354,7 @@ class AIGenerationPage(BasePage):
     def on_generate_clicked(self):
         """When the generate button is pressed"""
         prompt = self.get_prompt()
+        self.gif_movie.start() # starts the gif to start loading
         if not prompt:
             self.status_label.setText("Please enter a text description to generate a 3D model.")
             return
@@ -363,6 +374,8 @@ class AIGenerationPage(BasePage):
         self.worker.error_occurred.connect(self.on_generation_error)
         self.worker.finished_success.connect(self.on_generation_success)
         self.worker.start()
+
+        # rotating gif
 
     def on_generation_error(self, msg: str):
         self.status_label.setText(f"Error: {msg}")
@@ -659,10 +672,28 @@ class SceneGeneratorPage(BasePage):
         self.scene_input.setPlaceholderText(
             "Example inputs:\n\n"
             "• 5 trees and 3 rocks\n"
-            "• A room with a table and two chairs\n"
             "• 3 soldiers and a knight standing guard\n"
-            "• A desk with a lamp"
         )
+        """
+        Removed from above as they dont work
+        "• A desk with a lamp"
+        "• A room with a table and two chairs\n"
+        
+        Possible examples 
+        "• a witch is surrounded by a phoenix, 4 doberman and a cow?"
+        "• a main coon and a parakeet meet by a fountain"
+        "• three rabbits and a ragdoll find an elf by a tree"
+        "• a bear, a snake and some jellyfish discuss letting a hadgehog into their group"
+        "• a police car is chasing a ferrari, but a triceratops is in their way"
+        "• there is a ninja, a pirate and a cheetah playing musical chairs with two chairs
+        "• a lizard and a pitbull are in the zoo with five giraffe and three deer"
+        "• a samurai and a skeleton fight"
+        "• a squirrel is a by a christmas tree feeling christmas spirit" # not fully functioning
+        "• a dolphin and a goat look at a gpu, wondering what it is"
+        "• a cube, two octahedron and a cone  consider stealing a ferrari"
+        "• 10 scorpion sit by the sun"
+        """
+
         self.scene_input.setMinimumHeight(150)
         # Ensure readable text/placeholder on macOS (dark/light), it works well on 
         # Windows and Linux as well
@@ -677,6 +708,7 @@ class SceneGeneratorPage(BasePage):
                 border-radius: 6px;
                 padding: 10px;
                 font-size: 13px;
+                color: #000000;
                 background-color: #fafafa;
                 color: #111111;
                 selection-background-color: #cce5ff;

@@ -55,7 +55,7 @@ class SceneBrain:
     
     # 数量词映射
     QUANTITY_WORDS = {
-        'a': 1, 'an': 1, 'one': 1, 'single': 1,
+        'a': 1, 'an': 1, 'one': 1, 'single': 1, 'the': 1,
         'two': 2, 'couple': 2, 'pair': 2,
         'three': 3, 'few': 3,
         'four': 4, 'several': 4,
