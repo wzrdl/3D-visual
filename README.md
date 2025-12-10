@@ -69,7 +69,7 @@ The application requires specific environment variables to function correctly. Y
 
     ```ini
     # URL of the deployed backend service
-    BACKEND_API_URL=“https://d3-visual-backend-588296003116.us-east1.run.app”
+    BACKEND_API_URL="https://d3-visual-backend-588296003116.us-east1.run.app"
 
     # Your Meshy API Key for Text-to-3D generation
     MESHY_API_KEY=msy_your_api_key_here

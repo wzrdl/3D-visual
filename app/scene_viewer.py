@@ -24,7 +24,7 @@ class SceneViewer(QtInteractor):
 
     Features:
     1. Render multi-object 3D scenes
-    2. Show debug info (AABB, connection lines, etc.)
+    2. Show debug info (AABB, iteration history, etc.)
     3. Support scene screenshots
     """
     
@@ -226,12 +226,10 @@ class SceneViewer(QtInteractor):
         
         # Stop any existing timer
         if self._iteration_timer:
-            try:
-                self._iteration_timer.stop()
-            except Exception:
-                pass
+            self._iteration_timer.stop()
+
         
-        from PyQt6.QtCore import QTimer  # Delayed import to avoid top-level dependency
+        from PyQt6.QtCore import QTimer  # Delayed import to avoid top-level dependency which will be faster
         self._iteration_step = 0
         self._iteration_timer = QTimer(self)
         self._iteration_timer.setInterval(200)  # 200ms per frame
@@ -295,19 +293,21 @@ class SceneViewer(QtInteractor):
                         return
             except Exception as e:
                 print(f"[SceneViewer] Error fetching model from backend (id={node.model_id}): {e}")
-
+        
+        # We do not need the placeholder for the data right now, We used to set the placeholder for the data.
         if not model_path.exists():
-            print(f"[SceneViewer] Model file not found: {model_path}")
-            mesh = self._create_placeholder(node.bbox_size)
-        else:
-            mesh = self.load_model_file(str(model_path))
-            if mesh is None:
-                mesh = self._create_placeholder(node.bbox_size)
+            print(f"[SceneViewer] Model file not found: {model_path}, skip rendering placeholder")
+            return
+
+        mesh = self.load_model_file(str(model_path))
+        if mesh is None:
+            print(f"[SceneViewer] Failed to load model file: {model_path}, skip rendering placeholder")
+            return
 
         self._add_mesh_safe(mesh, node)
 
     def _add_mesh_safe(self, mesh: pv.PolyData, node: SceneNode):
-        """Normalize, transform, and add mesh with exception safety."""
+        """Normalize, transform, and add mesh with exception safety. Especially for the glb data"""
         try:
             mesh = self._normalize_mesh(mesh, node.placement_type, node.display_name)
         except Exception as e:
@@ -334,16 +334,6 @@ class SceneViewer(QtInteractor):
         except Exception as e:
             print(f"[SceneViewer] add_mesh failed for {actor_name}: {e}")
     
-    def _create_placeholder(self, bbox_size: np.ndarray) -> pv.PolyData:
-        box = pv.Box(
-            bounds=(
-                -bbox_size[0]/2, bbox_size[0]/2,
-                -bbox_size[1]/2, bbox_size[1]/2,
-                -bbox_size[2]/2, bbox_size[2]/2
-            )
-        )
-        return box
-    
     def _apply_transform(self, mesh: pv.PolyData, transform: Transform) -> pv.PolyData:
         result = mesh.copy()
         
@@ -369,11 +359,7 @@ class SceneViewer(QtInteractor):
         norm_mesh.points -= center
         
         bounds = norm_mesh.bounds
-        size = np.array([
-            bounds[1] - bounds[0],
-            bounds[3] - bounds[2],
-            bounds[5] - bounds[4]
-        ])
+        size = np.array([bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4]])
         max_dim = np.max(size)
         
         if max_dim > 0:
@@ -390,6 +376,10 @@ class SceneViewer(QtInteractor):
         return norm_mesh
 
     def _get_semantic_scale(self, display_name: str) -> float:
+        """ 
+        This function is used to get the semantic sacale for the object based on the name, 
+        which average the size of the object. For example, some models are so large that they will cover the entire scene
+        """
         name = display_name.lower()
         
         if any(k in name for k in ['tree']):
@@ -484,10 +474,7 @@ class SceneViewer(QtInteractor):
     
     def _setup_camera(self, nodes: List[SceneNode]):
         """
-        Position the camera to view the entire scene.
-
-        Args:
-            nodes: All scene nodes
+        This function is used to position the camera to view the entire scene.
         """
         if not nodes:
             self.reset_camera()
@@ -551,10 +538,7 @@ class SceneViewer(QtInteractor):
     
     def toggle_debug_mode(self) -> bool:
         """
-        Toggle debug mode.
-
-        Returns:
-            New debug mode state
+        This function is used to toggle the debug mode, which will show the debug info in the scene.
         """
         self.debug_mode = not self.debug_mode
         return self.debug_mode
@@ -569,13 +553,7 @@ class SceneViewer(QtInteractor):
     
     def take_scene_screenshot(self, filename: str = None) -> str:
         """
-        Capture a scene screenshot.
-
-        Args:
-            filename: Output filename (optional)
-
-        Returns:
-            Screenshot file path
+        Capture a scene screenshot for the right panel in the main window, and it accordinate with the what the user sees in the right panel.
         """
         if filename is None:
             from datetime import datetime
@@ -613,7 +591,7 @@ class SceneViewer(QtInteractor):
             if obj.model_id in dimensions:
                 continue
             
-            # Skip blacklisted models
+            # Skip blacklisted models, these models cause unexpected crashes for program
             if obj.filename in self.BLACKLISTED_MODELS or obj.model_id in self.BLACKLISTED_MODELS:
                 print(f"[SceneViewer] Skipping blacklisted model: {obj.filename}")
                 continue
@@ -650,6 +628,8 @@ class SceneViewer(QtInteractor):
                     print(f"[SceneViewer] dimension fallback for {obj.model_id}: {e}")
 
             name = obj.display_name.lower()
+
+            # preset the dimensions for some objects, avoid too large or too small objects
             if 'table' in name:
                 dimensions[obj.model_id] = np.array([2.0, 1.0, 1.0])
             elif 'chair' in name:
