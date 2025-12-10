@@ -4,10 +4,6 @@ Quick validation for the semantic search pipeline (sentence-transformers + cosin
 Usage examples:
     python -m app.validate_embeddings --query "tree" --top-k 10
     python -m app.validate_embeddings --query "car"
-
-Behavior:
-    Uses ClientDataManager to build the in-memory semantic embedding index
-    and prints ranked matches with scores.
 """
 
 import argparse
@@ -38,7 +34,6 @@ def main():
             ]
             print(f"Names containing '{args.query}':", names_with_query[:20])
             
-            # Check if encoder is available
             if dm._encoder is not None:
                 print(f"Encoder model: {dm._semantic_model_name}")
                 print(f"Embedding dimensions: {dm._semantic_embeddings.shape if dm._semantic_embeddings is not None else 'None'}")

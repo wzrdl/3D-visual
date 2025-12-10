@@ -600,25 +600,9 @@ class ViewerPage(BasePage):
 
 
 class SceneGeneratorPage(BasePage):
-    """
-    Scene generation page - implements the full pipeline "text input → 3D scene".
-
-    Features:
-    1. Accept natural language scene descriptions
-    2. Invoke SceneBrain for semantic parsing
-    3. Invoke LayoutEngine for spatial layout
-    4. Render with SceneViewer
-    5. Provide a debug visualization toggle
-    """
+    """Scene generation page - implements the full pipeline "text input → 3D scene"."""
     
     def __init__(self, data_manager=None, parent=None):
-        """
-        Initialize the scene generation page.
-
-        Args:
-            data_manager: Data manager for accessing the model library
-            parent: Parent widget
-        """
         self.data_manager = data_manager
         self._scene_brain = None
         self._layout_engine = None
@@ -638,7 +622,7 @@ class SceneGeneratorPage(BasePage):
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(10)
         
-        # ===== Left control panel =====
+        # left control panel
         left_panel = QFrame()
         left_panel.setMaximumWidth(400)
         left_panel.setMinimumWidth(300)
@@ -647,7 +631,7 @@ class SceneGeneratorPage(BasePage):
         left_layout.setSpacing(15)
         
         # Title
-        title_label = QLabel("🎬 Smart Scene Composer")
+        title_label = QLabel("Smart 3D Scene Generator")
         title_label.setStyleSheet("""
             font-size: 18px; 
             font-weight: bold; 
@@ -658,10 +642,7 @@ class SceneGeneratorPage(BasePage):
         
         # Description
         desc_label = QLabel(
-            "Enter a natural language description and the system will automatically:\n"
-            "• Semantic analysis → understand objects and counts\n"
-            "• Spatial layout → force-directed anti-overlap\n"
-            "• Hierarchy constraints → anchor-based parent-child"
+            "Tell me What scene you want to create Today!"
         )
         desc_label.setStyleSheet("color: #666; margin-bottom: 10px; line-height: 1.4;")
         desc_label.setWordWrap(True)
@@ -686,6 +667,8 @@ class SceneGeneratorPage(BasePage):
         input_layout = QVBoxLayout(input_group)
         
         self.scene_input = QTextEdit()
+
+        # Prompt the user to enter from the example below
         self.scene_input.setPlaceholderText(
             "Example inputs:\n\n"
             "• 5 trees and 3 rocks\n"
@@ -712,7 +695,8 @@ class SceneGeneratorPage(BasePage):
         """
 
         self.scene_input.setMinimumHeight(150)
-        # Ensure readable text/placeholder on macOS (dark/light)
+        # Ensure readable text/placeholder on macOS (dark/light), it works well on 
+        # Windows and Linux as well
         palette = self.scene_input.palette()
         palette.setColor(QPalette.ColorRole.Text, QColor("#111111"))
         palette.setColor(QPalette.ColorRole.Base, QColor("#fafafa"))
@@ -740,7 +724,7 @@ class SceneGeneratorPage(BasePage):
         left_layout.addWidget(input_group)
         
         # Generate button
-        self.generate_btn = QPushButton("🚀 Generate Scene")
+        self.generate_btn = QPushButton("Generate Scene")
         self.generate_btn.setMinimumHeight(45)
         self.generate_btn.setStyleSheet("""
             QPushButton {
@@ -815,7 +799,7 @@ class SceneGeneratorPage(BasePage):
         # Spacer
         left_layout.addStretch()
         
-        # ===== Right 3D view =====
+        # Right 3D view panel
         right_panel = QFrame()
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
@@ -831,30 +815,21 @@ class SceneGeneratorPage(BasePage):
         main_layout.addWidget(left_panel)
         main_layout.addWidget(right_panel, stretch=1)
     
-    def _ensure_engines(self):
-        """Ensure SceneBrain and LayoutEngine are initialized"""
-        # Scene generation logic lives in SceneViewer now; nothing to init here
-        pass
+    # def _ensure_engines(self):
+    #     """Ensure SceneBrain and LayoutEngine are initialized"""
+    #     # Scene generation logic lives in SceneViewer now; nothing to init here
+    #     pass
     
     def on_generate_clicked(self):
-        """
-        Handler for the generate button click.
-
-        Steps:
-        1. Read user input
-        2. SceneBrain semantic analysis
-        3. LayoutEngine spatial layout
-        4. SceneViewer rendering
-        """
         text = self.scene_input.toPlainText().strip()
         if not text:
-            self._set_status_text("⚠️ Please enter a scene description")
+            self._set_status_text("Please enter a scene description!!!")
             return
         
         # Disable button
         self.generate_btn.setEnabled(False)
-        self.generate_btn.setText("⏳ Generating...")
-        self.status_label.setText("🔍 Analyzing scene description...")
+        self.generate_btn.setText("Generating...")
+        self.status_label.setText("Analyzing scene description...")
         
         try:
             # Delegate generation and rendering to SceneViewer
@@ -866,10 +841,10 @@ class SceneGeneratorPage(BasePage):
         except Exception as e:
             import traceback
             traceback.print_exc()
-            self._set_status_text(f"❌ Generation failed: {str(e)}")
+            self._set_status_text(f"Generation failed: {str(e)}")
         finally:
             self.generate_btn.setEnabled(True)
-            self.generate_btn.setText("🚀 Generate Scene")
+            self.generate_btn.setText("Generate Scene")
     
     def on_debug_toggled(self, state):
         """Handle debug checkbox state change"""
@@ -897,9 +872,9 @@ class SceneGeneratorPage(BasePage):
         """Handle screenshot button click"""
         try:
             filepath = self.scene_viewer.take_scene_screenshot()
-            self.status_label.setText(f"📸 Screenshot saved: {filepath}")
+            self.status_label.setText(f"Screenshot saved: {filepath}")
         except Exception as e:
-            self.status_label.setText(f"❌ Screenshot failed: {str(e)}")
+            self.status_label.setText(f"Screenshot failed: {str(e)}")
     
     def _set_status_text(self, text: str):
         """Unified status update helper"""

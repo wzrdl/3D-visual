@@ -1,12 +1,5 @@
 """
-SceneBrain - Semantic Analysis Module
-
-Handles NLP parsing and vector retrieval to map unstructured natural language
-to the local asset library using sentence-transformers + cosine similarity
-for semantic matching.
-
-Input: text string
-Output: target model IDs and quantity info
+This file is used to parse the user input and map it to the local asset library using sentence-transformers + cosine similarity
 """
 
 import re
@@ -24,8 +17,6 @@ class SceneObject:
     count: int              # Quantity
     tags: List[str]         # Tags
     placement_type: str     # Placement type: ground, prop, character, floating
-    is_parent: bool         # Whether it is a parent object (e.g., table)
-    parent_id: Optional[str] = None  # Parent object ID (if it is a child)
 
 
 class SceneBrain:
@@ -38,17 +29,6 @@ class SceneBrain:
     3. Match the local asset library via semantic similarity
     4. Identify parent-child constraints
     """
-    
-    # 预定义的物体关系映射（父物体 -> 子物体列表）
-    PARENT_CHILD_RELATIONS = {
-        'table': ['chair', 'cup', 'plate', 'book', 'lamp'],
-        'desk': ['chair', 'computer', 'lamp', 'book', 'pen'],
-        'bed': ['pillow', 'blanket', 'lamp'],
-        'sofa': ['cushion', 'pillow', 'lamp', 'table'],
-        'tree': ['bird', 'squirrel'],
-        'car': ['wheel', 'person'],
-        'house': ['door', 'window', 'person'],
-    }
     
     # 放置类型关键词映射
     PLACEMENT_TYPE_KEYWORDS = {
@@ -109,7 +89,6 @@ class SceneBrain:
         1. Text preprocessing (lowercase, tokenization)
         2. Extract object keywords and quantities
         3. Semantic match against the model library
-        4. Identify parent-child relations
 
         Args:
             text: User-entered scene description, e.g., "a room with a table and two chairs"
@@ -131,7 +110,6 @@ class SceneBrain:
         
         # 3. Match against model library
         scene_objects = []
-        parent_map = {}  # Track parent objects for relationship building
         
         for keyword, count in extracted_items:
             matched_list = self._match_models(keyword)
@@ -141,7 +119,6 @@ class SceneBrain:
                 if isinstance(tags, str):
                     tags = [tags]
                 placement_type = matched_model.get('placement_type') or self._get_placement_type(keyword)
-                is_parent = self._is_parent_object(keyword)
                 
                 scene_obj = SceneObject(
                     model_id=matched_model['id'],
@@ -149,19 +126,10 @@ class SceneBrain:
                     filename=matched_model['filename'],
                     count=count if idx == 0 else 1,  # preserve user count only for top hit
                     tags=tags,
-                    placement_type=placement_type,
-                    is_parent=is_parent,
-                    parent_id=None
+                    placement_type=placement_type
                 )
                 
-                # 记录父物体（仅首个匹配用于父映射）
-                if is_parent and idx == 0:
-                    parent_map[keyword] = scene_obj.model_id
-                    
                 scene_objects.append(scene_obj)
-        
-        # 4. 建立父子关系
-        scene_objects = self._establish_parent_child_relations(scene_objects, parent_map)
         
         return scene_objects
     
@@ -339,46 +307,7 @@ class SceneBrain:
                 if keyword_lower in kw or kw in keyword_lower:
                     return ptype
         
-        # 默认为地面物体
         return 'ground'
-    
-    def _is_parent_object(self, keyword: str) -> bool:
-        """Determine if keyword represents a parent object (can host children)"""
-        return keyword.lower() in self.PARENT_CHILD_RELATIONS
-    
-    def _establish_parent_child_relations(
-        self, 
-        scene_objects: List[SceneObject],
-        parent_map: Dict[str, str]
-    ) -> List[SceneObject]:
-        """
-        Establish parent-child constraints.
-
-        Based on predefined relation mappings and existing scene objects.
-
-        Args:
-            scene_objects: Scene object list
-            parent_map: Mapping from parent keyword to ID
-
-        Returns:
-            Scene objects with parent_id updated
-        """
-        # Traverse all objects to see if they should attach to a parent
-        for obj in scene_objects:
-            if obj.is_parent:
-                continue
-            
-            # Check whether this object should belong to a parent
-            obj_name_lower = obj.display_name.lower()
-            
-            for parent_keyword, children in self.PARENT_CHILD_RELATIONS.items():
-                if parent_keyword in parent_map:
-                    for child_keyword in children:
-                        if child_keyword in obj_name_lower:
-                            obj.parent_id = parent_map[parent_keyword]
-                            break
-                            
-        return scene_objects
     
     def get_scene_summary(self, scene_objects: List[SceneObject]) -> str:
         """

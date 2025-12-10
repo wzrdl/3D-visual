@@ -46,18 +46,16 @@ class ClientDataManager:
         self.models_dir = self.assets_dir / "models"
         self.models_dir.mkdir(parents=True, exist_ok=True)
 
-        # In-memory cache of model metadata to avoid repeated HTTP calls
         self._all_models: List[Dict] = []
         self.name_order: List[str] = []
         self.vector_database = None
 
         # Semantic search using sentence-transformers
         self._stopwords: List[str] = self._load_stopwords()
-        # Semantic search members
         self._embedding_ids: List[str] = []
         self._model_lookup: Dict[str, Dict] = {}
         self._encoder = None
-        self._semantic_embeddings = None  # ndarray
+        self._semantic_embeddings = None
         self._semantic_ids: List[str] = []
         self._semantic_model_name = os.getenv("SEMANTIC_MODEL_NAME", "paraphrase-MiniLM-L3-v2")
         self._failed_downloads: set[str] = set()
@@ -78,11 +76,8 @@ class ClientDataManager:
         stopwords_path = Path(__file__).parent.parent / "assets" / "stopwords.txt"
         if not stopwords_path.exists():
             return []
-        try:
-            with open(stopwords_path, "r", encoding="utf-8") as f:
-                return [line.strip() for line in f if line.strip()]
-        except Exception:
-            return []
+        with open(stopwords_path, "r", encoding="utf-8") as f:
+            return [line.strip() for line in f if line.strip()]
 
     def _infer_placement_type(self, display_name: str, tags: List[str]) -> str:
         """Heuristically infer placement type from name/tags."""
@@ -125,18 +120,18 @@ class ClientDataManager:
         try:
             self._all_models = [self._prepare_model_record(m) for m in self.api.list_models()]
         except Exception as e:
-            print(f"Warning: Backend unavailable, using cached/backup data. Error: {e}")
-            if not self._all_models:
-                # Try to load from backup
-                backup_path = Path("app/assets/metadata.json.backup")
-                if backup_path.exists():
-                    try:
-                        with open(backup_path, "r", encoding="utf-8") as f:
-                            raw = json.load(f)
-                            if isinstance(raw, list):
-                                self._all_models = [self._prepare_model_record(m) for m in raw]
-                    except Exception as ex:
-                        print(f"Error loading backup metadata: {ex}")
+            print(f"Warning: Backend unavailable. Error: {e}")
+            # if not self._all_models:
+            #     # Try to load from backup
+            #     backup_path = Path("app/assets/metadata.json.backup")
+            #     if backup_path.exists():
+            #         try:
+            #             with open(backup_path, "r", encoding="utf-8") as f:
+            #                 raw = json.load(f)
+            #                 if isinstance(raw, list):
+            #                     self._all_models = [self._prepare_model_record(m) for m in raw]
+            #         except Exception as ex:
+            #             print(f"Error loading backup metadata: {ex}")
 
         # Reset semantic caches so downstream (viewer/scene) can pick up new models
         self._semantic_embeddings = None
@@ -144,11 +139,7 @@ class ClientDataManager:
         self._semantic_ids = []
         self._embedding_ids = []
         self._model_lookup = {m["id"]: m for m in self._all_models}
-        # Best-effort rebuild (fail silently if encoder unavailable)
-        try:
-            self._init_vector_index()
-        except Exception:
-            pass
+        self._init_vector_index()
         return self._all_models
 
     def search_models(self, query: str) -> List[Dict]:
@@ -181,7 +172,7 @@ class ClientDataManager:
                 results.append(m)
         return results
 
-    # -------- Lightweight semantic search (semantic encoder) --------
+    # Lightweight semantic search (semantic encoder)
     def _build_vector_corpus(self) -> Tuple[List[str], List[str]]:
         """Build corpus strings and id list for semantic embedding."""
         if not self._all_models:
@@ -208,16 +199,12 @@ class ClientDataManager:
 
     def _init_semantic_embeddings(self):
         """Build lightweight sentence embeddings if model is available."""
-        try:
-            from sentence_transformers import SentenceTransformer
-            model = SentenceTransformer(self._semantic_model_name)
-            texts = [self._normalize_text(self._model_lookup[mid]["display_name"]) for mid in self._embedding_ids]
-            self._semantic_embeddings = np.array(model.encode(texts, normalize_embeddings=True))
-            self._semantic_ids = list(self._embedding_ids)
-            self._encoder = model
-        except Exception:
-            self._encoder = None
-            self._semantic_embeddings = None
+        from sentence_transformers import SentenceTransformer
+        model = SentenceTransformer(self._semantic_model_name)
+        texts = [self._normalize_text(self._model_lookup[mid]["display_name"]) for mid in self._embedding_ids]
+        self._semantic_embeddings = np.array(model.encode(texts, normalize_embeddings=True))
+        self._semantic_ids = list(self._embedding_ids)
+        self._encoder = model
 
     def semantic_search(self, query: str, top_k: int = 5) -> List[Dict]:
         """
@@ -308,15 +295,12 @@ class ClientDataManager:
 
     def get_model_path(self, model_id: str) -> Optional[Path]:
         """
-        Ensure the model file exists locally (cache).
-
-        - Fetch model metadata from the backend (to obtain filename)
-        - If `assets/models/filename` already exists, return it
-        - Otherwise download the file bytes from FastAPI, write them locally, then return the path
+        This function is used to get the path of a model file, which is used liked a cache for
+        the model file locally. First it will check if the model file exists locally, if not, it will
+        download the model file from the backend and cache it locally.
         """
         if model_id in self._failed_downloads:
             return None
-
         try:
             meta = self.api.get_model(model_id)
         except Exception as e:
@@ -353,7 +337,8 @@ class ClientDataManager:
 
         return local_path
 
-    # cache management 
+    # Cache data manager, used to clear the cache data when the application is closed
+    # In order to avoid storing too much data locally
 
     def clear_cache(self) -> None:
         """Delete all cached model files from assets/models."""
@@ -373,15 +358,15 @@ class ClientDataManager:
         except Exception:
             pass
 
-    # ============= Legacy Test Support =============
-    # The following method is kept for backward compatibility with existing tests.
+    # This method is kept for backward compatibility with existing tests.
     # New code should use semantic_search() instead.
+    # It is used to concatenate the name and tags of the models into a list of strings,
+    # which is used to build the semantic embeddings.
     
     def concatenate_name_tags(self, metajson_location: str = None):
         name_tags = []
         self.name_order = []
 
-        # default
         if metajson_location is None:
 
             for m in self._all_models:
@@ -397,10 +382,6 @@ class ClientDataManager:
                 self.name_order.append(model_name.lower())
 
         else:
-
-            # from the data_manager.py initial migration from json
-            # Migrate from JSON
-
             with open(metajson_location, 'r', encoding='utf-8') as f:
                 metadata = json.load(f)
 
@@ -410,7 +391,6 @@ class ClientDataManager:
                 #display_name = entry.get('name', filename)  # Use 'name' from JSON as display_name
                 tags = entry.get('tags', [])
 
-                # concatenate filename and tags
                 name_tags.append(model_name.lower() + " " + " ".join(tags))
                 self.name_order.append(model_name.lower())
 
