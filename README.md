@@ -104,4 +104,5 @@ python main.py
 - **Missing API Key**: If the AI generation fails, ensure `MESHY_API_KEY` is set correctly in your `.env` file or environment variables.
 - **Backend Connection**: If the Gallery is empty or shows errors, verify that `BACKEND_API_URL` is reachable.
 - **Qt/PyVista Issues**: If the window doesn't appear or crashes, ensure your graphics drivers are up to date and that you have installed the correct PyQt6 dependencies from `requirements.txt`.
-- **DLL Error**: If the window crashes before the gallery loads due to the dynamic link library failed initialization, add "import torch" to the first line of the main.py file.
+- **DLL Error, Windows problem**: If the window crashes before the gallery loads due to the dynamic link library failed initialization, add "import torch" to the first line of the main.py file.
+- **MacOS problem**: If the program crashed, just open it again, the macOS have some VTK problem that I can't fix.
