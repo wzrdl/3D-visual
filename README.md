@@ -2,88 +2,113 @@
 
 ## Overview
 
-This project is a desktop 3D model browser & viewer (PyQt + PyVista) backed by a cloud-hosted
-model library:
+This project is a desktop 3D model browser & viewer (PyQt + PyVista) backed by a cloud-hosted model library.
 
-- **Backend (FastAPI + SQLite + GCS)** lives in the same repo under `server/` and `app/data_manager.py`.
-- **Desktop client (PyQt)** lives under `app/` and talks to the backend over HTTP.
-- The desktop app keeps only a **local cache** of model files; the **authoritative data** is stored
-  in **SQLite (metadata) + Google Cloud Storage (model files)**.
+- **Desktop Client (PyQt)**: Lives under `app/`. It allows users to browse models, view them in 3D, and generate new models using AI (Meshy API). It communicates with the backend via HTTP.
+- **Backend (FastAPI + SQLite + GCS)**: Lives under `server/` and uses `app/data_manager.py`. It manages the authoritative model metadata (SQLite) and files (Google Cloud Storage).
 
-For backend details and data flow, see `server/README.md`.
+For backend details and deployment instructions, please refer to [server/README.md](server/README.md).
 
-## Project Structure (High Level)
+## Project Structure
 
 ```text
 3D-visual/
 ├── app/
-│   ├── __init__.py
-│   ├── main_window.py        # Main application window (tabs)
-│   ├── pages.py              # Gallery / AI Generation / Viewer pages
-│   ├── viewer.py             # 3D model viewer widget (PyVista)
-│   ├── client_data_manager.py# Client-side DataManager (HTTP + local cache)
-│   ├── backend_client.py     # HTTP client for FastAPI backend
-│   ├── api_client.py         # (Reserved) API client for AI generation
-│   ├── data_manager.py       # Backend DataManager (SQLite + GCS), used by FastAPI
-│   ├── gcs_storage.py        # GCS helper (download/upload model files)
-│   └── schema.py             # SQLite schema definitions
-├── server/
-│   ├── app.py                # FastAPI backend entrypoint
-│   ├── requirements.txt      # Backend-only dependencies
-│   └── README.md             # Backend data flow & architecture
+│   ├── main_window.py        # Main application window (UI)
+│   ├── pages.py              # UI Pages: Gallery, AI Generation, Viewer
+│   ├── viewer.py             # Core 3D viewer widget (PyVista)
+│   ├── scene_viewer.py       # Advanced scene visualization logic
+│   ├── meshy_client.py       # Client for Meshy AI (Text-to-3D)
+│   ├── client_data_manager.py# Manages data flow for the client (Caching + Backend API)
+│   ├── backend_client.py     # HTTP Client for communicating with the backend
+│   └── ...
 ├── assets/
-│   ├── models.db             # SQLite database (backend, auto-created)
-│   ├── models/               # Local model files directory (also used as cache)
-│   └── metadata.json.backup  # Legacy metadata (migrated to SQLite)
-├── Dockerfile                # Container image for deploying backend to Cloud Run
+│   ├── models/               # Local cache for 3D model files
+│   └── ...
 ├── main.py                   # Desktop application entry point
-├── requirements.txt          # Shared Python dependencies (client + backend)
+├── requirements.txt          # Python dependencies
+├── .env.example              # Template for environment variables
 └── README.md                 # This file
 ```
 
-## Running the Desktop Client (Local)
+## Setup & Installation
 
-1. **Create and activate a virtual environment**
+### 1. Prerequisites
 
-   ```bash
-   cd 3D-visual
-   python -m venv venv
-   # On macOS / Linux:
-   source venv/bin/activate
-   # On Windows (PowerShell):
-   venv\Scripts\activate
-   ```
+- Python 3.9 or higher
+- A [Meshy API Key](https://meshy.ai/) (for AI 3D model generation)
 
-2. **Install dependencies**
+### 2. Create a Virtual Environment
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+It is recommended to use a virtual environment to manage dependencies.
 
-3. **Point the client to the deployed backend**
+```bash
+# Windows (PowerShell)
+python -m venv venv
+.\venv\Scripts\activate
 
-   The desktop client uses the environment variable `BACKEND_API_URL` to know where the FastAPI
-   backend is running. In your setup the backend is already deployed to Cloud Run, so you only need
-   to set this once:
+# macOS / Linux
+python3 -m venv venv
+source venv/bin/activate
+```
 
-   ```bash
-   # macOS / Linux
-   export BACKEND_API_URL="https://d3-visual-backend-588296003116.us-east1.run.app"
+### 3. Install Dependencies
 
-   # Windows (PowerShell)
-   $env:BACKEND_API_URL="https://d3-visual-backend-588296003116.us-east1.run.app"
-   ```
+```bash
+pip install -r requirements.txt
+```
 
-4. **Run the desktop application**
+### 4. Environment Configuration
 
-   ```bash
-   python main.py
-   ```
+The application requires specific environment variables to function correctly. You can set them in your terminal or create a `.env` file in the project root.
 
-   - The **Gallery** tab fetches model metadata from the backend (`GET /models`).
-   - When you click a model, the client downloads the model file (e.g. `.obj`, `.glb`) via
-     `GET /models/{id}/content` and caches it under `assets/models/` before loading it in the
-     3D viewer.
-   - When the app closes, the client clears its local cache (cached model files).
+**Option A: Create a `.env` file (Recommended)**
 
-<!-- Backend setup and deployment are documented in server/README.md -->
+1.  Create a file named `.env` in the root directory (`3D-visual/`).
+2.  Add the following content (replace with your actual keys):
+
+    ```ini
+    # URL of the deployed backend service
+    BACKEND_API_URL=“https://d3-visual-backend-588296003116.us-east1.run.app”
+
+    # Your Meshy API Key for Text-to-3D generation
+    MESHY_API_KEY=msy_your_api_key_here
+
+    # (Optional) Meshy AI Model version: 'meshy-4', 'meshy-5' (default), or 'latest'
+    MESHY_TEXT3D_MODEL="meshy-5"
+    ```
+
+**Option B: Set Environment Variables Manually**
+
+*Windows (PowerShell):*
+```powershell
+$env:BACKEND_API_URL="https://d3-visual-backend-588296003116.us-east1.run.app"
+$env:MESHY_API_KEY="your_meshy_key"
+```
+
+*macOS / Linux:*
+```bash
+export BACKEND_API_URL="https://d3-visual-backend-588296003116.us-east1.run.app"
+export MESHY_API_KEY="your_meshy_key"
+```
+
+### 5. Run the Application
+
+Once the environment is configured, launch the desktop client:
+
+```bash
+python main.py
+```
+
+## Features
+
+- **Gallery**: Browse 3D models stored in the cloud. Metadata is fetched from the backend, and files are downloaded/cached on demand.
+- **3D Viewer**: Interactive 3D visualization using PyVista. Supports orbit, zoom, and pan.
+- **AI Generation**: Generate 3D models from text prompts using the Meshy API. Generated models can be viewed locally.
+- **Scene Generator**: Compose scenes with multiple objects (experimental).
+
+## Troubleshooting
+
+- **Missing API Key**: If the AI generation fails, ensure `MESHY_API_KEY` is set correctly in your `.env` file or environment variables.
+- **Backend Connection**: If the Gallery is empty or shows errors, verify that `BACKEND_API_URL` is reachable.
+- **Qt/PyVista Issues**: If the window doesn't appear or crashes, ensure your graphics drivers are up to date and that you have installed the correct PyQt6 dependencies from `requirements.txt`.
