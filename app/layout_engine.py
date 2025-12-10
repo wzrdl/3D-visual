@@ -186,9 +186,7 @@ class LayoutEngine:
                     filename=obj.filename,
                     count=1,
                     tags=obj.tags.copy(),
-                    placement_type=obj.placement_type,
-                    is_parent=obj.is_parent,
-                    parent_id=obj.parent_id
+                    placement_type=obj.placement_type
                 )
                 expanded.append(expanded_obj)
         return expanded
@@ -371,8 +369,8 @@ class LayoutEngine:
     ) -> List[SceneNode]:
         """
         This function is used to apply the anchor constraints to the scene.
+        (Currently disabled/unused)
         """
-        # Anchor-based hierarchy temporarily disabled.
         return []
     
     def _euler_to_rotation_matrix(self, euler_angles: np.ndarray) -> np.ndarray:
