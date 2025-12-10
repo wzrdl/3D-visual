@@ -30,7 +30,7 @@ def shutdown_event() -> None:
 
 
 def _get_dm() -> DataManager:
-    return app.state.data_manager  # type: ignore[return-value]
+    return app.state.data_manager
 
 
 @app.get("/health")
@@ -83,7 +83,7 @@ def download_model_content(model_id: str):
             if not models:
                 raise HTTPException(status_code=404, detail="Model not found")
             filename = models[0]["filename"]
-            signed_url = dm.gcs_storage.generate_signed_url(filename=filename, expiration_seconds=3600)  # type: ignore[union-attr]
+            signed_url = dm.gcs_storage.generate_signed_url(filename=filename, expiration_seconds=3600)
             return RedirectResponse(url=signed_url, status_code=307)
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="Model file not found in GCS")
@@ -110,18 +110,8 @@ async def upload_model(
     tags: str = Form("[]"),
     file: UploadFile = File(...),
 ):
-    """
-    Upload a new 3D model:
-    - Body: multipart/form-data with fields:
-        - model_id: unique ID, e.g. "model_123"
-        - name: display name
-        - tags: JSON string, e.g. '["human","soldier"]'
-        - file: 3D model file (e.g. `.obj`, `.glb`)
-    - Behavior:
-        - Save the file to container-local assets/models/<filename>
-        - If GCS is configured, automatically upload to the bucket
-        - Write metadata into SQLite
-    """
+
+    # Upload a new 3D model to the database and the local directory
     dm = _get_dm()
 
     try:
