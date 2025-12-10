@@ -3,7 +3,7 @@
 widget for displaying 3D models in the main window.
 
 We deliberately keep the rendering stack simple:
-- All 3D files (OBJ, GLB, etc.) are loaded via `pyvista.read` and rendered
+- All 3D files (OBJ, GLB) are loaded via `pyvista.read` and rendered
   without any custom GLB parsing logic.
 - This avoids extra dependencies and keeps the behavior predictable.
 """
@@ -85,7 +85,7 @@ class ThreeDViewer(QtInteractor):
     def normalize_mesh(mesh: pv.PolyData) -> pv.PolyData:
         """
         Normalize mesh to unit size and center it.
-        This prevents huge models from clipping or being hard to navigate.
+        This prevents huge models from clipping or being hard to navigate. This function is used for glb data.
         """
         norm_mesh = ThreeDViewer.ensure_polydata(mesh).copy()
         
@@ -112,7 +112,7 @@ class ThreeDViewer(QtInteractor):
         return norm_mesh
 
 
-    # TODO: If possible, change the light setup
+    # TODO: If possible, change the light setup， right now it faces the object directly
     @staticmethod
     def setup_light():
         """Create a light that shines straight down from above the model."""
@@ -138,12 +138,12 @@ class ThreeDViewer(QtInteractor):
             thumbnail.add_mesh(mesh)
             thumbnail.set_background("white")
 
-        # Cross‑platform file/thumbnail paths
+        # Cross‑platform file/thumbnail paths, works on both windows and macos
         src_path = Path(file_path)
         file_name = f"{src_path.stem}.png"
         print(file_name)
 
-        # Thumbnails live under project_root/assets/thumbnails
+
         project_root = Path(__file__).parent.parent
         thumbnails_dir = project_root / "assets" / "thumbnails"
         thumbnails_dir.mkdir(parents=True, exist_ok=True)

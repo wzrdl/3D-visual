@@ -8,29 +8,25 @@ from dataclasses import dataclass
 import numpy as np
 
 
-@dataclass
+@dataclass # This is a dataclass that is used to store the scene object information, this is used for the scene object in the scene.
 class SceneObject:
     """Scene object descriptor"""
-    model_id: str           # Model ID
-    display_name: str       # Display name
-    filename: str           # File name
-    count: int              # Quantity
-    tags: List[str]         # Tags
-    placement_type: str     # Placement type: ground, prop, character, floating
+    model_id: str           
+    display_name: str       
+    filename: str           
+    count: int              
+    tags: List[str]         
+    placement_type: str     
 
 
 class SceneBrain:
     """
-    Semantic engine that understands user input and maps it to 3D assets.
-
-    Features:
     1. Parse natural language descriptions
     2. Extract object keywords and counts
     3. Match the local asset library via semantic similarity
-    4. Identify parent-child constraints
     """
     
-    # 放置类型关键词映射
+    # The placement type we set manually for the object, this is used for the placement of the object in the scene.
     PLACEMENT_TYPE_KEYWORDS = {
         'ground': ['table', 'chair', 'desk', 'tree', 'car', 'building', 'house', 
                    'rock', 'stone', 'bench', 'lamp', 'fence', 'wall'],
@@ -40,7 +36,7 @@ class SceneBrain:
         'floating': ['cloud', 'bird', 'plane', 'helicopter', 'balloon', 'star'],
     }
     
-    # 数量词映射
+    # The quantity words we use to extract the quantity of the object from the text.
     QUANTITY_WORDS = {
         'a': 1, 'an': 1, 'one': 1, 'single': 1, 'the': 1,
         'two': 2, 'couple': 2, 'pair': 2,
@@ -55,14 +51,10 @@ class SceneBrain:
     def __init__(self, data_manager=None, similarity_threshold: float = 0.4):
         """
         Initialize the semantic engine.
-
-        Args:
-            data_manager: Data manager instance for accessing the model library
-            similarity_threshold: Semantic similarity threshold
         """
         self.data_manager = data_manager
         self.similarity_threshold = similarity_threshold
-        # Lowered from 0.35 to 0.25 to include more relevant items (like trees/spheres)
+        # Lowered from 0.35 to 0.25 to include more relevant items (like trees/spheres), but 0.3 is too big, so we use 0.25
         self.fallback_threshold = 0.25
         self.top_k = 20  # number of candidates to consider per keyword
         self._fallback_model_id = "cube"
@@ -71,9 +63,8 @@ class SceneBrain:
     
     def _load_model_cache(self, force_refresh: bool = False):
         """
-        Load/refresh model cache from the data manager.
-
-        force_refresh=True ensures newly added models (e.g., AI generation) are visible.
+        Load & refresh model cache from the data manager. 
+        force_refresh=True ensures newly added models are visible.
         """
         if self.data_manager and (force_refresh or not self._model_cache):
             try:
@@ -83,18 +74,10 @@ class SceneBrain:
     
     def parse_scene_description(self, text: str) -> List[SceneObject]:
         """
-        Parse scene description text and return a list of scene objects.
-
-        Algorithm:
-        1. Text preprocessing (lowercase, tokenization)
-        2. Extract object keywords and quantities
-        3. Semantic match against the model library
-
-        Args:
-            text: User-entered scene description, e.g., "a room with a table and two chairs"
-
-        Returns:
-            List of SceneObject
+        Algorithm steps:
+            1. Text preprocessing (lowercase, tokenization)
+            2. Extract object keywords and quantities
+            3. Semantic match against the model library
         """
         if not text or not text.strip():
             return []
@@ -102,13 +85,10 @@ class SceneBrain:
         # Load model cache
         self._load_model_cache(force_refresh=True)
         
-        # 1. Text preprocessing
         text_lower = text.lower().strip()
         
-        # 2. Extract objects and counts
         extracted_items = self._extract_objects_and_quantities(text_lower)
         
-        # 3. Match against model library
         scene_objects = []
         
         for keyword, count in extracted_items:
@@ -118,6 +98,8 @@ class SceneBrain:
                 tags = matched_model.get('tags', [])
                 if isinstance(tags, str):
                     tags = [tags]
+
+                # According to the keyword in the text, we set the placement type for the object
                 placement_type = matched_model.get('placement_type') or self._get_placement_type(keyword)
                 
                 scene_obj = SceneObject(
@@ -135,27 +117,19 @@ class SceneBrain:
     
     def _extract_objects_and_quantities(self, text: str) -> List[Tuple[str, int]]:
         """
-        Extract object keywords and quantities from text.
-
-        Uses regex and quantity word mapping.
-
-        Args:
-            text: Preprocessed text
-
-        Returns:
-            List of (keyword, count) tuples
+        Extract object keywords and quantities from text. Uses regex and quantity word mapping.
         """
         results = []
         
-        # Pattern 1: "quantity word + noun" (e.g., "three trees", "a table")
-        # Pattern 2: "number + noun" (e.g., "3 chairs")
+        # e.g. 1: "quantity word + noun" (e.g., "three trees", "a table")
+        # e.g. 2: "number + noun" (e.g., "3 chairs")
         
         # Handle number + noun first
         number_pattern = r'(\d+)\s+(\w+s?)'
         for match in re.finditer(number_pattern, text):
             count = int(match.group(1))
             noun = match.group(2).rstrip('s')  # Remove plural s
-            if count > 0 and count <= 20:  # Reasonable range guard
+            if count > 0 and count <= 20:  # we don't want the model to be too complex
                 results.append((noun, count))
         
         # Handle quantity-word + noun
@@ -286,19 +260,8 @@ class SceneBrain:
     
     def _get_placement_type(self, keyword: str) -> str:
         """
-        Determine placement type based on keyword.
-
-        Placement types:
-        - ground: ground objects (trees, tables, buildings, etc.)
-        - prop: props (cups, books, small items)
-        - character: characters (people, animals, etc.)
-        - floating: floating objects (clouds, birds, etc.)
-
-        Args:
-            keyword: Object keyword
-
-        Returns:
-            Placement type string
+        This function is used to determine the placement type based on the keyword.
+        The keyword list is predefined in the PLACEMENT_TYPE_KEYWORDS.
         """
         keyword_lower = keyword.lower()
         
@@ -311,13 +274,7 @@ class SceneBrain:
     
     def get_scene_summary(self, scene_objects: List[SceneObject]) -> str:
         """
-        Generate a scene summary description.
-
-        Args:
-            scene_objects: Scene object list
-
-        Returns:
-            Scene summary string
+        This function is used to generate a scene summary description.
         """
         if not scene_objects:
             return "Empty scene"
